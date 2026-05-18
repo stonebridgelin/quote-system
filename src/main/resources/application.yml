@@ -1,0 +1,30 @@
+server:
+    port: 8080 # 后端服务端口
+    address: 0.0.0.0
+
+spring:
+    datasource:
+        # 你的数据库名称，假设我们刚才建的库叫 quote_db
+        # serverTimezone=Asia/Shanghai 解决时区问题，useUnicode=true&characterEncoding=utf-8 解决中文乱码
+        url: jdbc:mysql://127.0.0.1:3306/quote?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+        username: root        # 修改为你的数据库账号
+        password: 123456        # 修改为你的数据库密码
+        driver-class-name: com.mysql.cj.jdbc.Driver
+    jackson:
+        date-format: yyyy-MM-dd HH:mm:ss
+        time-zone: GMT+8
+
+# MyBatis-Plus 进阶配置
+mybatis-plus:
+    # 实体类扫描包路径 (填写你的实际包名)
+    type-aliases-package: com.stonebridge.quotesystem.entity
+    # Mapper XML 文件所在的路径
+    mapper-locations: classpath:mapper/*.xml
+    global-config:
+        db-config:
+            id-type: auto # 全局设置主键自增策略 (对应我们 SQL 里的 AUTO_INCREMENT)
+            table-prefix: t_ # 表名前缀，配置后实体类可以省略 "t_"，比如 Shape 对应 t_shape 表
+            logic-delete-field: deleted # (可选) 逻辑删除字段
+    configuration:
+        map-underscore-to-camel-case: true # 开启驼峰命名自动映射 (如 shape_code -> shapeCode)
+        log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 在控制台打印生成的 SQL 语句，方便调试
