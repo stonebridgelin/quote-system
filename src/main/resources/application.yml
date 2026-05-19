@@ -6,7 +6,7 @@ spring:
     datasource:
         # 你的数据库名称，假设我们刚才建的库叫 quote_db
         # serverTimezone=Asia/Shanghai 解决时区问题，useUnicode=true&characterEncoding=utf-8 解决中文乱码
-        url: jdbc:mysql://127.0.0.1:3306/quote?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+        url: jdbc:mysql://127.0.0.1:3306/quote?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
         username: root        # 修改为你的数据库账号
         password: 123456        # 修改为你的数据库密码
         driver-class-name: com.mysql.cj.jdbc.Driver
