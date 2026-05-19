@@ -21,6 +21,7 @@ public class QuoteDetail {
     private Integer ctns; // 可以为空
     private BigDecimal cbmCtn;
     private BigDecimal gwCtn;
+    private BigDecimal nwCtn;
     private BigDecimal unitPrice;
     private BigDecimal weight;
     private String dimension;

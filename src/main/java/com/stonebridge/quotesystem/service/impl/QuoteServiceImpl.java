@@ -131,6 +131,7 @@ public class QuoteServiceImpl implements IQuoteService {
                 dto.setCbmCtn(detail.getCbmCtn());
                 dto.setGwCtn(detail.getGwCtn());
 
+                dto.setNwCtn(detail.getNwCtn());
                 // 【高健壮性重构】：查器型代码和照片
                 Map<String, Object> shapeInfo = quoteDetailMapper.findShapeAndImageBySpec(detail.getSpecCode());
 

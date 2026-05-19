@@ -66,16 +66,22 @@ public class QuoteExportDTO {
     @ExcelProperty(value = {"CBM", "total"}, index = 10)
     private BigDecimal cbmTotal;
 
-    @ExcelProperty(value = {"G.W.(kg)", "ctn"}, index = 11)
+    @ExcelProperty(value = {"N.W.(kg)", "ctn"}, index = 11)
+    private BigDecimal nwCtn;
+
+    @ExcelProperty(value = {"N.W.(kg)", "total"}, index = 12)
+    private BigDecimal nwTotal;
+
+    @ExcelProperty(value = {"G.W.(kg)", "ctn"}, index = 13)
     private BigDecimal gwCtn;
 
-    @ExcelProperty(value = {"G.W.(kg)", "total"}, index = 12)
+    @ExcelProperty(value = {"G.W.(kg)", "total"}, index = 14)
     private BigDecimal gwTotal;
 
-    @ExcelProperty(value = "U.PRICE", index = 13)
+    @ExcelProperty(value = "U.PRICE", index = 15)
     private String unitPrice;
 
-    @ExcelProperty(value = "AMOUNT", index = 14)
+    @ExcelProperty(value = "AMOUNT", index = 16)
     @ColumnWidth(20)
     private String amount;
 }
