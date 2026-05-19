@@ -130,7 +130,7 @@ public class QuoteServiceImpl implements IQuoteService {
                 dto.setPcs(detail.getPcs());
                 dto.setCbmCtn(detail.getCbmCtn());
                 dto.setGwCtn(detail.getGwCtn());
-
+                dto.setTtlPcs(detail.getTtlPcs());
                 dto.setNwCtn(detail.getNwCtn());
                 // 【高健壮性重构】：查器型代码和照片
                 Map<String, Object> shapeInfo = quoteDetailMapper.findShapeAndImageBySpec(detail.getSpecCode());
@@ -165,9 +165,9 @@ public class QuoteServiceImpl implements IQuoteService {
                     dto.setUnitPrice(symbol + detail.getUnitPrice().toString());
                 }
 
-                // 计算箱数及金额
+                // 计算箱数及汇总项
                 if (detail.getCtns() != null && detail.getCtns() > 0) {
-                    dto.setCtns(detail.getCtns());
+                    dto.setCtns(detail.getCtns()); // 这里对应的 Excel 列头已经是 "TTL CTNs"
                     BigDecimal ctnsDec = new BigDecimal(detail.getCtns());
 
                     if (detail.getCbmCtn() != null) {
@@ -176,10 +176,18 @@ public class QuoteServiceImpl implements IQuoteService {
                     if (detail.getGwCtn() != null) {
                         dto.setGwTotal(detail.getGwCtn().multiply(ctnsDec));
                     }
+                    if (detail.getNwCtn() != null) {
+                        dto.setNwTotal(detail.getNwCtn().multiply(ctnsDec));
+                    }
+
+                    // 防御性处理：如果数据库中保存的 ttlPcs 意外为空，可在导出时利用公式兜底计算一次
+                    if (dto.getTtlPcs() == null && detail.getPcs() != null) {
+                        dto.setTtlPcs(detail.getPcs() * detail.getCtns());
+                    }
+
                     if (detail.getUnitPrice() != null && detail.getPcs() != null) {
                         BigDecimal pcsDec = new BigDecimal(detail.getPcs());
                         BigDecimal amt = detail.getUnitPrice().multiply(pcsDec).multiply(ctnsDec);
-                        // 给总金额拼接货币符号，并强制保留两位小数
                         dto.setAmount(symbol + amt.setScale(2, java.math.RoundingMode.HALF_UP).toString());
                     }
                 }

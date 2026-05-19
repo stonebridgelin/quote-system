@@ -18,6 +18,10 @@ public class QuoteDetail {
     private Integer pcsPerSet;
     private Integer setsPerCtn;
     private Integer pcs;
+    /**
+     * 总件数 (PCS/SET * SETS/CTN * CTNs)
+     */
+    private Integer ttlPcs;
     private Integer ctns; // 可以为空
     private BigDecimal cbmCtn;
     private BigDecimal gwCtn;

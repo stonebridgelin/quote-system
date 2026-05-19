@@ -57,31 +57,36 @@ public class QuoteExportDTO {
     @ExcelProperty(value = "PCS", index = 7)
     private Integer pcs;
 
-    @ExcelProperty(value = "CTNs", index = 8)
+    // 2. 新增 TTL PCS 字段及表头注解
+    @ExcelProperty(value = "TTL PCS", index = 8)
+    private Integer ttlPcs;
+
+    // 1. 修改原有注解名称为 TTL CTNs
+    @ExcelProperty(value = "TTL CTNs", index = 9)
     private Integer ctns;
 
-    @ExcelProperty(value = {"CBM", "ctn"}, index = 9)
+    @ExcelProperty(value = {"CBM", "ctn"}, index = 10)
     private BigDecimal cbmCtn;
 
-    @ExcelProperty(value = {"CBM", "total"}, index = 10)
+    @ExcelProperty(value = {"CBM", "total"}, index = 11)
     private BigDecimal cbmTotal;
 
-    @ExcelProperty(value = {"N.W.(kg)", "ctn"}, index = 11)
+    @ExcelProperty(value = {"N.W.(kg)", "ctn"}, index = 12)
     private BigDecimal nwCtn;
 
-    @ExcelProperty(value = {"N.W.(kg)", "total"}, index = 12)
+    @ExcelProperty(value = {"N.W.(kg)", "total"}, index = 13)
     private BigDecimal nwTotal;
 
-    @ExcelProperty(value = {"G.W.(kg)", "ctn"}, index = 13)
+    @ExcelProperty(value = {"G.W.(kg)", "ctn"}, index = 14)
     private BigDecimal gwCtn;
 
-    @ExcelProperty(value = {"G.W.(kg)", "total"}, index = 14)
+    @ExcelProperty(value = {"G.W.(kg)", "total"}, index = 15)
     private BigDecimal gwTotal;
 
-    @ExcelProperty(value = "U.PRICE", index = 15)
+    @ExcelProperty(value = "U.PRICE", index = 16)
     private String unitPrice;
 
-    @ExcelProperty(value = "AMOUNT", index = 16)
+    @ExcelProperty(value = "AMOUNT", index = 17)
     @ColumnWidth(20)
     private String amount;
 }
