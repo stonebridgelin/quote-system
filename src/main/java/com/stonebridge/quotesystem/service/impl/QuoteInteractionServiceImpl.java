@@ -22,9 +22,22 @@ import java.util.stream.Collectors;
 @Service
 public class QuoteInteractionServiceImpl implements IQuoteInteractionService {
 
-    @Autowired private ShapeMapper shapeMapper;
-    @Autowired private ShapeSpecMapper shapeSpecMapper;
-    @Autowired private PackSpecMapper packSpecMapper;
+    private ShapeMapper shapeMapper;
+    private ShapeSpecMapper shapeSpecMapper;
+    private PackSpecMapper packSpecMapper;
+
+    @Autowired
+    public void setShapeMapper(ShapeMapper shapeMapper) {
+        this.shapeMapper = shapeMapper;
+    }
+    @Autowired
+    public void setShapeSpecMapper(ShapeSpecMapper shapeSpecMapper) {
+        this.shapeSpecMapper = shapeSpecMapper;
+    }
+    @Autowired
+    public void setPackSpecMapper(PackSpecMapper packSpecMapper) {
+        this.packSpecMapper = packSpecMapper;
+    }
 
     @Override
     public List<Shape> searchShape(String keyword) {

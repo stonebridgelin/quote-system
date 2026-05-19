@@ -15,8 +15,12 @@ import javax.servlet.http.HttpServletResponse;
 @CrossOrigin
 public class QuoteController {
 
-    @Autowired
     private IQuoteService quoteService;
+
+    @Autowired
+    public void setQuoteService(IQuoteService quoteService) {
+        this.quoteService = quoteService;
+    }
 
     /**
      * 核心：保存报价单
@@ -43,9 +47,6 @@ public class QuoteController {
     public void exportQuote(@PathVariable String quoteNo, HttpServletResponse response) {
         quoteService.exportQuote(quoteNo, response);
     }
-
-
-// ...
 
     /**
      * 分页查询历史报价明细

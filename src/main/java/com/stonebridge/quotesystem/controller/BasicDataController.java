@@ -27,10 +27,14 @@ import java.util.Map;
 @CrossOrigin
 public class BasicDataController {
 
-    @Autowired private ShapeMapper shapeMapper;
-    @Autowired private IShapeSpecService shapeSpecService;
-    @Autowired private IPackSpecService packSpecService;
-    @Autowired private SysConfigMapper sysConfigMapper;
+    @Autowired
+    private ShapeMapper shapeMapper;
+    @Autowired
+    private IShapeSpecService shapeSpecService;
+    @Autowired
+    private IPackSpecService packSpecService;
+    @Autowired
+    private SysConfigMapper sysConfigMapper;
 
     // --- 器型表维护 ---
     @GetMapping("/shape/page")
@@ -56,7 +60,7 @@ public class BasicDataController {
 
     @PostMapping("/shape/save")
     public Map<String, Object> saveShape(@RequestBody Shape shape) {
-        if(shape.getId() == null) shapeMapper.insert(shape);
+        if (shape.getId() == null) shapeMapper.insert(shape);
         else shapeMapper.updateById(shape);
         return success(null);
     }
@@ -152,8 +156,8 @@ public class BasicDataController {
 
         packModel = packModel.trim();
         if (!packModel.trim().isEmpty()) {
-            if (packModel.startsWith("F")){
-                packModel= packModel.replaceFirst("F","");
+            if (packModel.startsWith("F")) {
+                packModel = packModel.replaceFirst("F", "");
             }
             wrapper.like("spec_code", packModel.trim());
         }

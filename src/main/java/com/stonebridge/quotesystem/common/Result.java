@@ -12,7 +12,8 @@ public class Result<T> {
     private T data;
 
     // 私有化构造方法，强制使用静态工厂方法创建对象
-    private Result() {}
+    private Result() {
+    }
 
     private Result(Integer code, String message, T data) {
         this.code = code;

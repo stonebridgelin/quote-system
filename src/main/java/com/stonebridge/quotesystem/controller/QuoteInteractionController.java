@@ -17,8 +17,12 @@ import java.util.Map;
 @CrossOrigin // 解决 Vue 前端跨域
 public class QuoteInteractionController {
 
-    @Autowired
     private IQuoteInteractionService interactionService;
+
+    @Autowired
+    public void setInteractionService(IQuoteInteractionService interactionService) {
+        this.interactionService = interactionService;
+    }
 
     /**
      * Level 2 弹窗：搜索器型

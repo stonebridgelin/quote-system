@@ -13,8 +13,11 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class ShapeServiceImpl implements IShapeService {
 
-    @Autowired
     private ShapeMapper shapeMapper;
+    @Autowired
+    public void setShapeMapper(ShapeMapper shapeMapper) {
+        this.shapeMapper = shapeMapper;
+    }
 
     @Transactional(rollbackFor = Exception.class)
     @Override

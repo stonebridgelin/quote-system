@@ -32,12 +32,22 @@ import java.util.Random;
 @Service
 public class QuoteServiceImpl implements IQuoteService {
 
-    @Autowired
     private QuoteMainMapper quoteMainMapper;
-    @Autowired
     private QuoteDetailMapper quoteDetailMapper;
-    @Autowired
     private IShapeSpecService shapeSpecService; // 用于反写吨价
+
+    @Autowired
+    public void setQuoteMainMapper(QuoteMainMapper quoteMainMapper) {
+        this.quoteMainMapper = quoteMainMapper;
+    }
+    @Autowired
+    public void setQuoteDetailMapper(QuoteDetailMapper quoteDetailMapper) {
+        this.quoteDetailMapper = quoteDetailMapper;
+    }
+    @Autowired
+    public void setShapeSpecService(IShapeSpecService shapeSpecService) {
+        this.shapeSpecService = shapeSpecService;
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)

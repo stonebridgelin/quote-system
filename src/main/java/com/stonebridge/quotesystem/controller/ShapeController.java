@@ -12,8 +12,12 @@ import org.springframework.web.multipart.MultipartFile;
 @CrossOrigin // 解决 Vue 前端跨域
 public class ShapeController {
 
-    @Autowired
     private IShapeService shapeService;
+
+    @Autowired
+    public void setShapeService(IShapeService shapeService) {
+        this.shapeService = shapeService;
+    }
 
     @PostMapping("/upload-images")
     public Result<UploadResultVO> uploadShapeImages(@RequestParam("files") MultipartFile[] files) {
