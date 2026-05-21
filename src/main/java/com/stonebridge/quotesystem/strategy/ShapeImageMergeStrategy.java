@@ -44,7 +44,7 @@ public class ShapeImageMergeStrategy implements CellWriteHandler, WorkbookWriteH
         if (Boolean.TRUE.equals(isHead)) return;
 
         int dataIdx = relativeRowIndex; // 在 dataList 中的索引
-        int realRow  = cell.getRowIndex(); // Sheet 中的真实绝对行号
+        int realRow = cell.getRowIndex(); // Sheet 中的真实绝对行号
 
         // 1. 利用最先写入的列(NO.列)记录该行的真实行号
         if (cell.getColumnIndex() == 0) {
@@ -71,7 +71,7 @@ public class ShapeImageMergeStrategy implements CellWriteHandler, WorkbookWriteH
         // 5. 跨越多行执行 Unsafe 强制合并
         if (startIdx < dataIdx) {
             int firstRow = absRowIndex[startIdx];
-            int lastRow  = realRow;
+            int lastRow = realRow;
 
             Sheet sheet = writeSheetHolder.getSheet();
             sheet.addMergedRegionUnsafe(new CellRangeAddress(firstRow, lastRow, PHOTO_COL, PHOTO_COL));
@@ -96,10 +96,12 @@ public class ShapeImageMergeStrategy implements CellWriteHandler, WorkbookWriteH
     // =========================================================
 
     @Override
-    public void beforeWorkbookCreate() {}
+    public void beforeWorkbookCreate() {
+    }
 
     @Override
-    public void afterWorkbookCreate(WriteWorkbookHolder writeWorkbookHolder) {}
+    public void afterWorkbookCreate(WriteWorkbookHolder writeWorkbookHolder) {
+    }
 
     @Override
     public void afterWorkbookDispose(WriteWorkbookHolder writeWorkbookHolder) {
@@ -133,7 +135,7 @@ public class ShapeImageMergeStrategy implements CellWriteHandler, WorkbookWriteH
             if (photo != null && photo.length > 0) {
                 try {
                     int firstAbsRow = absRowIndex[i];
-                    int lastAbsRow  = absRowIndex[groupEnd];
+                    int lastAbsRow = absRowIndex[groupEnd];
                     int rowCount = lastAbsRow - firstAbsRow + 1;
 
                     // 1. 获取合并单元格的真实宽高（物理像素）
@@ -167,18 +169,22 @@ public class ShapeImageMergeStrategy implements CellWriteHandler, WorkbookWriteH
                         int col2 = PHOTO_COL; // 宽度不足一列，终点依然是这列
                         int dx2 = (int) endX_emu;
 
-                        int row1 = firstAbsRow + (int)(startY_emu / ROW_HEIGHT_EMU);
-                        int dy1 = (int)(startY_emu % ROW_HEIGHT_EMU);
-                        int row2 = firstAbsRow + (int)(endY_emu / ROW_HEIGHT_EMU);
-                        int dy2 = (int)(endY_emu % ROW_HEIGHT_EMU);
+                        int row1 = firstAbsRow + (int) (startY_emu / ROW_HEIGHT_EMU);
+                        int dy1 = (int) (startY_emu % ROW_HEIGHT_EMU);
+                        int row2 = firstAbsRow + (int) (endY_emu / ROW_HEIGHT_EMU);
+                        int dy2 = (int) (endY_emu % ROW_HEIGHT_EMU);
 
                         // 7. 直接绘制：不需要任何 resize，因为坐标已经完美锁死了图片的每一个角！
                         int picIdx = workbook.addPicture(photo, detectType(photo));
                         XSSFClientAnchor anchor = sheet.getWorkbook().getCreationHelper().createClientAnchor();
-                        anchor.setCol1(col1); anchor.setDx1(dx1);
-                        anchor.setRow1(row1); anchor.setDy1(dy1);
-                        anchor.setCol2(col2); anchor.setDx2(dx2);
-                        anchor.setRow2(row2); anchor.setDy2(dy2);
+                        anchor.setCol1(col1);
+                        anchor.setDx1(dx1);
+                        anchor.setRow1(row1);
+                        anchor.setDy1(dy1);
+                        anchor.setCol2(col2);
+                        anchor.setDx2(dx2);
+                        anchor.setRow2(row2);
+                        anchor.setDy2(dy2);
                         anchor.setAnchorType(org.apache.poi.ss.usermodel.ClientAnchor.AnchorType.MOVE_DONT_RESIZE);
 
                         drawing.createPicture(anchor, picIdx);
@@ -195,7 +201,9 @@ public class ShapeImageMergeStrategy implements CellWriteHandler, WorkbookWriteH
     // 工具方法
     // =========================================================
 
-    /** 等比缩放，返回目标像素 [width, height] */
+    /**
+     * 等比缩放，返回目标像素 [width, height]
+     */
     private int[] fitSize(byte[] data, int maxW, int maxH) {
         try {
             java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new ByteArrayInputStream(data));
@@ -203,17 +211,19 @@ public class ShapeImageMergeStrategy implements CellWriteHandler, WorkbookWriteH
             int w = img.getWidth(), h = img.getHeight();
             if (w <= 0 || h <= 0) return new int[]{maxW, maxH};
             double ratio = Math.min((double) maxW / w, (double) maxH / h);
-            return new int[]{(int)(w * ratio), (int)(h * ratio)};
+            return new int[]{(int) (w * ratio), (int) (h * ratio)};
         } catch (Exception e) {
             return new int[]{maxW, maxH};
         }
     }
 
-    /** 智能嗅探图片格式头 */
+    /**
+     * 智能嗅探图片格式头
+     */
     private int detectType(byte[] data) {
         if (data.length >= 2) {
-            if (data[0] == (byte)0x89 && data[1] == 0x50) return Workbook.PICTURE_TYPE_PNG;
-            if (data[0] == (byte)0xFF && data[1] == (byte)0xD8) return Workbook.PICTURE_TYPE_JPEG;
+            if (data[0] == (byte) 0x89 && data[1] == 0x50) return Workbook.PICTURE_TYPE_PNG;
+            if (data[0] == (byte) 0xFF && data[1] == (byte) 0xD8) return Workbook.PICTURE_TYPE_JPEG;
         }
         return Workbook.PICTURE_TYPE_JPEG;
     }

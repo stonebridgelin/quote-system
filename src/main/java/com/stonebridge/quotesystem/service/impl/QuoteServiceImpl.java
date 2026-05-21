@@ -40,10 +40,12 @@ public class QuoteServiceImpl implements IQuoteService {
     public void setQuoteMainMapper(QuoteMainMapper quoteMainMapper) {
         this.quoteMainMapper = quoteMainMapper;
     }
+
     @Autowired
     public void setQuoteDetailMapper(QuoteDetailMapper quoteDetailMapper) {
         this.quoteDetailMapper = quoteDetailMapper;
     }
+
     @Autowired
     public void setShapeSpecService(IShapeSpecService shapeSpecService) {
         this.shapeSpecService = shapeSpecService;
@@ -56,7 +58,6 @@ public class QuoteServiceImpl implements IQuoteService {
         boolean isUpdate = (quoteNo != null && !quoteNo.trim().isEmpty());
 
         if (isUpdate) {
-            // 【执行更新逻辑】
             // 1. 更新主表
             UpdateWrapper<QuoteMain> mainUpdate = new UpdateWrapper<>();
             mainUpdate.eq("quote_no", quoteNo)
@@ -71,7 +72,7 @@ public class QuoteServiceImpl implements IQuoteService {
             quoteDetailMapper.delete(deleteWrapper);
 
         } else {
-            // 【执行新增逻辑】
+            // 执行新增生成单号逻辑
             String timeStr = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
             int randomNum = new Random().nextInt(900) + 100;
             quoteNo = "QT" + timeStr + randomNum;
@@ -84,17 +85,17 @@ public class QuoteServiceImpl implements IQuoteService {
             quoteMainMapper.insert(main);
         }
 
-        // 【统一步骤】：无论新增还是更新，都重新插入最新的明细
+        // 3. 统一步骤：循环处理前端传过来的明细列表并插入
         List<QuoteDetail> details = dto.getDetailList();
         if (details != null && !details.isEmpty()) {
             int index = 1;
             for (QuoteDetail detail : details) {
-                // 极其关键：清空前端可能传过来的历史 ID，强制作为新数据插入
+                // 抹除原有主键痕迹，并绑定当前生成的最新单号
                 detail.setId(null);
                 detail.setQuoteNo(quoteNo);
                 detail.setItemIndex(index++);
 
-                // 反写吨价逻辑保持不变
+                // 统一反写吨价逻辑保持不变
                 if (detail.getOriginalPrice() != null && detail.getSpecCode() != null) {
                     UpdateWrapper<ShapeSpec> updateWrapper = new UpdateWrapper<>();
                     updateWrapper.eq("spec_code", detail.getSpecCode())
@@ -102,6 +103,7 @@ public class QuoteServiceImpl implements IQuoteService {
                     shapeSpecService.update(updateWrapper);
                 }
 
+                // 直接执行插入（属性已由前端传入，carton_weight 自动入库）
                 quoteDetailMapper.insert(detail);
             }
         }
@@ -270,6 +272,37 @@ public class QuoteServiceImpl implements IQuoteService {
         }
 
         return page;
+    }
+
+    @Override
+    public List<QuoteDetail> getDetailsByQuoteNo(String quoteNo) {
+        if (quoteNo == null || quoteNo.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        QueryWrapper<QuoteDetail> wrapper = new QueryWrapper<>();
+        // 匹配对应的报价单号
+        wrapper.eq("quote_no", quoteNo.trim());
+        // 按照数据库ID正序排列，保证代入主表时产品的先后顺序不乱
+        wrapper.orderByAsc("id");
+
+        List<QuoteDetail> list = quoteDetailMapper.selectList(wrapper);
+
+        // 沿用你 getHistoryPage 里的汇总项计算逻辑：如果单价和数量齐全，在内存中补算一次 Amount 金额
+        for (QuoteDetail detail : list) {
+            boolean canCalculateAmount = detail.getUnitPrice() != null
+                    && detail.getPcs() != null
+                    && detail.getCtns() != null
+                    && detail.getCtns() > 0;
+
+            if (canCalculateAmount) {
+                BigDecimal pcsDec = BigDecimal.valueOf(detail.getPcs());
+                BigDecimal ctnsDec = BigDecimal.valueOf(detail.getCtns());
+                detail.setAmount(detail.getUnitPrice().multiply(pcsDec).multiply(ctnsDec));
+            }
+        }
+
+        return list;
     }
 
     private static QueryWrapper<QuoteDetail> getQuoteDetailQueryWrapper(String quoteNo, String remarks) {

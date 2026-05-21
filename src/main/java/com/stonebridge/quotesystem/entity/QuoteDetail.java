@@ -31,6 +31,8 @@ public class QuoteDetail {
     private String dimension;
     private BigDecimal originalPrice;
     private LocalDateTime createTime;
+    @TableField("carton_weight")
+    private BigDecimal cartonWeight;
 
     /**
      * 额外价格 (人民币：用于描边、贴花等)

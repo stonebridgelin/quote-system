@@ -30,10 +30,12 @@ public class QuoteInteractionServiceImpl implements IQuoteInteractionService {
     public void setShapeMapper(ShapeMapper shapeMapper) {
         this.shapeMapper = shapeMapper;
     }
+
     @Autowired
     public void setShapeSpecMapper(ShapeSpecMapper shapeSpecMapper) {
         this.shapeSpecMapper = shapeSpecMapper;
     }
+
     @Autowired
     public void setPackSpecMapper(PackSpecMapper packSpecMapper) {
         this.packSpecMapper = packSpecMapper;

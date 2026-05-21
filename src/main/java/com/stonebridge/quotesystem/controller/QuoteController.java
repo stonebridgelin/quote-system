@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/quote")
@@ -58,5 +59,13 @@ public class QuoteController {
             @RequestParam(required = false) String quoteNo,
             @RequestParam(required = false) String remarks) {
         return Result.success(quoteService.getHistoryPage(current, size, quoteNo, remarks));
+    }
+
+    /**
+     * 根据单号获取该单号下的所有明细数据（不分页）
+     */
+    @GetMapping("/history/detail")
+    public Result<List<QuoteDetail>> getDetailsByQuoteNo(@RequestParam String quoteNo) {
+        return Result.success(quoteService.getDetailsByQuoteNo(quoteNo));
     }
 }
