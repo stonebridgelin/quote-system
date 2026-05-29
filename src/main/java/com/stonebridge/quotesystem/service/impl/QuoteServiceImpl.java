@@ -34,7 +34,7 @@ public class QuoteServiceImpl implements IQuoteService {
 
     private QuoteMainMapper quoteMainMapper;
     private QuoteDetailMapper quoteDetailMapper;
-    private IShapeSpecService shapeSpecService; // 用于反写吨价
+    private IShapeSpecService shapeSpecService;
 
     @Autowired
     public void setQuoteMainMapper(QuoteMainMapper quoteMainMapper) {
@@ -51,6 +51,9 @@ public class QuoteServiceImpl implements IQuoteService {
         this.shapeSpecService = shapeSpecService;
     }
 
+    // =========================================================
+    // 保存报价单（新增 / 全删全建更新）
+    // =========================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String saveQuote(QuoteSaveDTO dto) {
@@ -58,23 +61,21 @@ public class QuoteServiceImpl implements IQuoteService {
         boolean isUpdate = (quoteNo != null && !quoteNo.trim().isEmpty());
 
         if (isUpdate) {
-            // 1. 更新主表
+            // 更新主表基本信息
             UpdateWrapper<QuoteMain> mainUpdate = new UpdateWrapper<>();
             mainUpdate.eq("quote_no", quoteNo)
-                    .set("currency", dto.getCurrency() != null ? dto.getCurrency() : "USD")
+                    .set("currency",      dto.getCurrency() != null ? dto.getCurrency() : "USD")
                     .set("exchange_rate", dto.getExchangeRate())
-                    .set("remark", dto.getRemark());
+                    .set("remark",        dto.getRemark());
             quoteMainMapper.update(null, mainUpdate);
 
-            // 2. 清空旧明细 (全删全建策略)
-            QueryWrapper<QuoteDetail> deleteWrapper = new QueryWrapper<>();
-            deleteWrapper.eq("quote_no", quoteNo);
-            quoteDetailMapper.delete(deleteWrapper);
+            // 全删旧明细（全删全建策略，简单可靠）
+            quoteDetailMapper.delete(new QueryWrapper<QuoteDetail>().eq("quote_no", quoteNo));
 
         } else {
-            // 执行新增生成单号逻辑
-            String timeStr = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-            int randomNum = new Random().nextInt(900) + 100;
+            // 新增：生成唯一单号
+            String timeStr   = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+            int    randomNum = new Random().nextInt(900) + 100;
             quoteNo = "QT" + timeStr + randomNum;
 
             QuoteMain main = new QuoteMain();
@@ -85,25 +86,22 @@ public class QuoteServiceImpl implements IQuoteService {
             quoteMainMapper.insert(main);
         }
 
-        // 3. 统一步骤：循环处理前端传过来的明细列表并插入
+        // 统一：按前端传入顺序插入明细，item_index 即为前端显示的行号
         List<QuoteDetail> details = dto.getDetailList();
         if (details != null && !details.isEmpty()) {
-            int index = 1;
-            for (QuoteDetail detail : details) {
-                // 抹除原有主键痕迹，并绑定当前生成的最新单号
-                detail.setId(null);
+            for (int i = 0; i < details.size(); i++) {
+                QuoteDetail detail = details.get(i);
+                detail.setId(null);           // 清除主键，强制 INSERT
                 detail.setQuoteNo(quoteNo);
-                detail.setItemIndex(index++);
+                detail.setItemIndex(i + 1);   // 前端顺序 → 数据库 item_index，从 1 开始
 
-                // 统一反写吨价逻辑保持不变
+                // 反写吨价到基础资料表
                 if (detail.getOriginalPrice() != null && detail.getSpecCode() != null) {
-                    UpdateWrapper<ShapeSpec> updateWrapper = new UpdateWrapper<>();
-                    updateWrapper.eq("spec_code", detail.getSpecCode())
-                            .set("ton_price", detail.getOriginalPrice());
-                    shapeSpecService.update(updateWrapper);
+                    shapeSpecService.update(new UpdateWrapper<ShapeSpec>()
+                            .eq("spec_code", detail.getSpecCode())
+                            .set("ton_price", detail.getOriginalPrice()));
                 }
 
-                // 直接执行插入（属性已由前端传入，carton_weight 自动入库）
                 quoteDetailMapper.insert(detail);
             }
         }
@@ -111,122 +109,45 @@ public class QuoteServiceImpl implements IQuoteService {
         return quoteNo;
     }
 
+    // =========================================================
+    // 导出报价单 Excel
+    // =========================================================
     @Override
     public void exportQuote(String quoteNo, HttpServletResponse response) {
         try {
-            // 1. 设置响应头，告诉浏览器这是一个 Excel 下载流
+            // 1. 设置响应头
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             response.setCharacterEncoding("utf-8");
-            // 防止中文文件名乱码
             String fileName = URLEncoder.encode("Quote_" + quoteNo, "UTF-8").replaceAll("\\+", "%20");
             response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
 
-            // 2. 从数据库查出该报价单的所有明细
-            QueryWrapper<QuoteDetail> wrapper = new QueryWrapper<>();
-            wrapper.eq("quote_no", quoteNo);
+            // 2. 【FIX-顺序】按 item_index 升序查询，严格还原用户保存时的行顺序
+            //    去掉了原来按 shapeCode/specCode 强制重排的逻辑，改由前端/用户决定顺序
+            QueryWrapper<QuoteDetail> wrapper = new QueryWrapper<QuoteDetail>()
+                    .eq("quote_no", quoteNo)
+                    .orderByAsc("item_index");
             List<QuoteDetail> detailList = quoteDetailMapper.selectList(wrapper);
 
-            // 3. 查出主表信息，获取本次报价的币种，并决定使用哪个符号
-            QuoteMain main = quoteMainMapper.selectOne(new QueryWrapper<QuoteMain>().eq("quote_no", quoteNo));
-            String symbol = (main != null && "RMB".equals(main.getCurrency())) ? "¥" : "$";
+            // 3. 查主表获取币种符号
+            QuoteMain main   = quoteMainMapper.selectOne(
+                    new QueryWrapper<QuoteMain>().eq("quote_no", quoteNo));
+            String    symbol = (main != null && "RMB".equals(main.getCurrency())) ? "¥" : "$";
 
-            // 4. 将数据库实体转换为导出格式并补充计算
+            // 4. 组装导出 DTO 列表
             List<QuoteExportDTO> exportList = new ArrayList<>();
             for (QuoteDetail detail : detailList) {
-                QuoteExportDTO dto = new QuoteExportDTO();
-                dto.setSpecCode(detail.getSpecCode());
-                dto.setDescription(detail.getDescription());
-                dto.setDesign(detail.getDesign());
-                dto.setPcsPerSet(detail.getPcsPerSet());
-                dto.setSetsPerCtn(detail.getSetsPerCtn());
-                dto.setPcs(detail.getPcs());
-                dto.setCbmCtn(detail.getCbmCtn());
-                dto.setGwCtn(detail.getGwCtn());
-                dto.setTtlPcs(detail.getTtlPcs());
-                dto.setNwCtn(detail.getNwCtn());
-                // 【高健壮性重构】：查器型代码和照片
-                Map<String, Object> shapeInfo = quoteDetailMapper.findShapeAndImageBySpec(detail.getSpecCode());
-
-                if (shapeInfo != null && shapeInfo.get("shapeCode") != null) {
-                    // 1. 安全获取 shapeCode
-                    dto.setShapeCode(String.valueOf(shapeInfo.get("shapeCode")));
-
-                    // 2. 安全解析图片二进制流
-                    Object imgData = shapeInfo.get("imageData");
-                    if (imgData != null) {
-                        try {
-                            if (imgData instanceof byte[]) {
-                                dto.setPhoto((byte[]) imgData);
-                            } else if (imgData instanceof java.sql.Blob) {
-                                // 兼容驱动返回 java.sql.Blob 的情况
-                                java.sql.Blob blob = (java.sql.Blob) imgData;
-                                dto.setPhoto(blob.getBytes(1, (int) blob.length()));
-                            }
-                        } catch (Exception e) {
-                            // 吞掉异常，防止因为一张破损图片导致整个报价单下载失败
-                            System.err.println("解析产品图片失败，SpecCode: " + detail.getSpecCode());
-                        }
-                    }
-                } else {
-                    // 【核心修复】：如果没查到主器型，直接用自己的 spec_code 作为 shapeCode，防止错误合并
-                    dto.setShapeCode(detail.getSpecCode() != null ? detail.getSpecCode() : "EMPTY_SPEC");
-                }
-
-                // 给单价拼接货币符号
-                if (detail.getUnitPrice() != null) {
-                    dto.setUnitPrice(symbol + detail.getUnitPrice().toString());
-                }
-
-                // 计算箱数及汇总项
-                if (detail.getCtns() != null && detail.getCtns() > 0) {
-                    dto.setCtns(detail.getCtns()); // 这里对应的 Excel 列头已经是 "TTL CTNs"
-                    BigDecimal ctnsDec = new BigDecimal(detail.getCtns());
-
-                    if (detail.getCbmCtn() != null) {
-                        dto.setCbmTotal(detail.getCbmCtn().multiply(ctnsDec));
-                    }
-                    if (detail.getGwCtn() != null) {
-                        dto.setGwTotal(detail.getGwCtn().multiply(ctnsDec));
-                    }
-                    if (detail.getNwCtn() != null) {
-                        dto.setNwTotal(detail.getNwCtn().multiply(ctnsDec));
-                    }
-
-                    // 防御性处理：如果数据库中保存的 ttlPcs 意外为空，可在导出时利用公式兜底计算一次
-                    if (dto.getTtlPcs() == null && detail.getPcs() != null) {
-                        dto.setTtlPcs(detail.getPcs() * detail.getCtns());
-                    }
-
-                    if (detail.getUnitPrice() != null && detail.getPcs() != null) {
-                        BigDecimal pcsDec = new BigDecimal(detail.getPcs());
-                        BigDecimal amt = detail.getUnitPrice().multiply(pcsDec).multiply(ctnsDec);
-                        dto.setAmount(symbol + amt.setScale(2, java.math.RoundingMode.HALF_UP).toString());
-                    }
-                }
-
+                QuoteExportDTO dto = buildExportDTO(detail, symbol);
                 exportList.add(dto);
             }
 
-            // 【核心重排】：先按 shapeCode 升序 (聚拢同系列)，再按 specCode 降序 (排尺寸)
-            exportList.sort((a, b) -> {
-                int shapeComp = a.getShapeCode().compareTo(b.getShapeCode());
-                if (shapeComp != 0) {
-                    return shapeComp;
-                }
-                return b.getSpecCode().compareTo(a.getSpecCode());
-            });
-
-            // 【重写序号 & 图片去重】：
-            // 重新从 1 开始排序号，同时只保留同组的第一张图片，防止多张图重叠！
+            // 5. 按 item_index 重写序号（数据库已排好序，直接 1..N 写入即可）
             for (int i = 0; i < exportList.size(); i++) {
                 exportList.get(i).setItemIndex(i + 1);
-                // photo 不清空，ShapeImageMergeStrategy 自己按 shapeCode 分组，只绘制每组首行图片
             }
 
-
-            // 5. 【注入灵魂】：注册自定义图片合并策略并导出
+            // 6. 注册图片合并策略并写出 Excel
             EasyExcel.write(response.getOutputStream(), QuoteExportDTO.class)
-                    .registerWriteHandler(new ShapeImageMergeStrategy(exportList)) // 挂载合并策略
+                    .registerWriteHandler(new ShapeImageMergeStrategy(exportList))
                     .sheet("Quote Data")
                     .doWrite(exportList);
 
@@ -235,92 +156,164 @@ public class QuoteServiceImpl implements IQuoteService {
         }
     }
 
+    /**
+     * 将单条明细实体组装成导出 DTO，含图片查询和汇总计算。
+     * 单独抽出方法，让 exportQuote 主流程更清晰。
+     */
+    private QuoteExportDTO buildExportDTO(QuoteDetail detail, String symbol) {
+        QuoteExportDTO dto = new QuoteExportDTO();
+
+        // 基础字段映射
+        dto.setSpecCode(detail.getSpecCode());
+        dto.setDescription(detail.getDescription());
+        dto.setDesign(detail.getDesign());
+        dto.setPcsPerSet(detail.getPcsPerSet());
+        dto.setSetsPerCtn(detail.getSetsPerCtn());
+        dto.setPcs(detail.getPcs());
+        dto.setCbmCtn(detail.getCbmCtn());
+        dto.setGwCtn(detail.getGwCtn());
+        dto.setNwCtn(detail.getNwCtn());
+        dto.setTtlPcs(detail.getTtlPcs());
+
+        // 查器型图片（健壮处理，单张图片异常不影响整单导出）
+        Map<String, Object> shapeInfo = quoteDetailMapper.findShapeAndImageBySpec(detail.getSpecCode());
+        if (shapeInfo != null && shapeInfo.get("shapeCode") != null) {
+            dto.setShapeCode(String.valueOf(shapeInfo.get("shapeCode")));
+            Object imgData = shapeInfo.get("imageData");
+            if (imgData != null) {
+                try {
+                    if (imgData instanceof byte[]) {
+                        dto.setPhoto((byte[]) imgData);
+                    } else if (imgData instanceof java.sql.Blob) {
+                        java.sql.Blob blob = (java.sql.Blob) imgData;
+                        dto.setPhoto(blob.getBytes(1, (int) blob.length()));
+                    }
+                } catch (Exception e) {
+                    System.err.println("[exportQuote] 解析图片失败，specCode=" + detail.getSpecCode());
+                }
+            }
+        } else {
+            // 查不到主器型时用 specCode 自身占位，防止图片错误合并
+            dto.setShapeCode(detail.getSpecCode() != null ? detail.getSpecCode() : "EMPTY_SPEC");
+        }
+
+        // 单价（带币种符号）
+        if (detail.getUnitPrice() != null) {
+            dto.setUnitPrice(symbol + detail.getUnitPrice().toPlainString());
+        }
+
+        // 箱数相关汇总（只有 ctns > 0 才计算，防止除零和无意义数据）
+        if (detail.getCtns() != null && detail.getCtns() > 0) {
+            BigDecimal ctnsDec = BigDecimal.valueOf(detail.getCtns());
+            dto.setCtns(detail.getCtns());
+
+            if (detail.getCbmCtn() != null) {
+                dto.setCbmTotal(detail.getCbmCtn().multiply(ctnsDec));
+            }
+            if (detail.getGwCtn() != null) {
+                dto.setGwTotal(detail.getGwCtn().multiply(ctnsDec));
+            }
+            if (detail.getNwCtn() != null) {
+                dto.setNwTotal(detail.getNwCtn().multiply(ctnsDec));
+            }
+
+            // ttlPcs 兜底：数据库若为空则在导出时补算
+            if (dto.getTtlPcs() == null && detail.getPcs() != null) {
+                dto.setTtlPcs(detail.getPcs() * detail.getCtns());
+            }
+
+            // 金额（带币种符号，保留两位小数）
+            if (detail.getUnitPrice() != null && detail.getPcs() != null) {
+                BigDecimal amt = detail.getUnitPrice()
+                        .multiply(BigDecimal.valueOf(detail.getPcs()))
+                        .multiply(ctnsDec)
+                        .setScale(2, java.math.RoundingMode.HALF_UP);
+                dto.setAmount(symbol + amt.toPlainString());
+            }
+        }
+
+        return dto;
+    }
+
+    // =========================================================
+    // 历史报价分页查询
+    // =========================================================
     @Override
     public Page<QuoteDetail> getHistoryPage(Integer current, Integer size, String quoteNo, String remarks) {
         Page<QuoteDetail> page = new Page<>(current, size);
-        // 传递两个搜索条件给 Wrapper
-        QueryWrapper<QuoteDetail> wrapper = getQuoteDetailQueryWrapper(quoteNo, remarks);
+        quoteDetailMapper.selectPage(page, getQuoteDetailQueryWrapper(quoteNo, remarks));
+        // 【FIX】删除了原来重复执行的第二次 selectPage，避免双倍数据库查询
 
-        quoteDetailMapper.selectPage(page, wrapper);
-
-        // 1. 核心修复：删除了重复的一行 selectPage，避免执行两次相同的 SQL 查库
-        quoteDetailMapper.selectPage(page, wrapper);
-
-        // 2. 性能拦截：如果当前页根本没有查到数据，直接 return，省去后续无意义的循环判断
         List<QuoteDetail> records = page.getRecords();
         if (records == null || records.isEmpty()) {
             return page;
         }
 
-        // 3. 遍历计算
+        // 补算金额（历史列表展示用）
         for (QuoteDetail detail : records) {
             detail.setPrice(detail.getOriginalPrice());
-
-            // 使用提前定义好的条件判断，代码阅读起来更清晰
-            boolean canCalculateAmount = detail.getUnitPrice() != null
-                    && detail.getPcs() != null
+            if (detail.getUnitPrice() != null
+                    && detail.getPcs()  != null
                     && detail.getCtns() != null
-                    && detail.getCtns() > 0;
-
-            if (canCalculateAmount) {
-                // 4. 内存优化：推荐使用 BigDecimal.valueOf() 而不是 new BigDecimal()
-                BigDecimal pcsDec = BigDecimal.valueOf(detail.getPcs());
-                BigDecimal ctnsDec = BigDecimal.valueOf(detail.getCtns());
-
-                detail.setAmount(detail.getUnitPrice().multiply(pcsDec).multiply(ctnsDec));
+                    && detail.getCtns() > 0) {
+                detail.setAmount(
+                        detail.getUnitPrice()
+                                .multiply(BigDecimal.valueOf(detail.getPcs()))
+                                .multiply(BigDecimal.valueOf(detail.getCtns()))
+                );
             }
         }
 
         return page;
     }
 
+    // =========================================================
+    // 按单号查整单明细（用于历史弹窗"载入整单"功能）
+    // =========================================================
     @Override
     public List<QuoteDetail> getDetailsByQuoteNo(String quoteNo) {
         if (quoteNo == null || quoteNo.trim().isEmpty()) {
             return new ArrayList<>();
         }
 
-        QueryWrapper<QuoteDetail> wrapper = new QueryWrapper<>();
-        // 匹配对应的报价单号
-        wrapper.eq("quote_no", quoteNo.trim());
-        // 按照数据库ID正序排列，保证代入主表时产品的先后顺序不乱
-        wrapper.orderByAsc("id");
+        // 【FIX-顺序】按 item_index 排序，保证载入时行顺序和原单一致
+        QueryWrapper<QuoteDetail> wrapper = new QueryWrapper<QuoteDetail>()
+                .eq("quote_no", quoteNo.trim())
+                .orderByAsc("item_index");
 
         List<QuoteDetail> list = quoteDetailMapper.selectList(wrapper);
 
-        // 沿用你 getHistoryPage 里的汇总项计算逻辑：如果单价和数量齐全，在内存中补算一次 Amount 金额
+        // 补算金额
         for (QuoteDetail detail : list) {
-            boolean canCalculateAmount = detail.getUnitPrice() != null
-                    && detail.getPcs() != null
+            if (detail.getUnitPrice() != null
+                    && detail.getPcs()  != null
                     && detail.getCtns() != null
-                    && detail.getCtns() > 0;
-
-            if (canCalculateAmount) {
-                BigDecimal pcsDec = BigDecimal.valueOf(detail.getPcs());
-                BigDecimal ctnsDec = BigDecimal.valueOf(detail.getCtns());
-                detail.setAmount(detail.getUnitPrice().multiply(pcsDec).multiply(ctnsDec));
+                    && detail.getCtns() > 0) {
+                detail.setAmount(
+                        detail.getUnitPrice()
+                                .multiply(BigDecimal.valueOf(detail.getPcs()))
+                                .multiply(BigDecimal.valueOf(detail.getCtns()))
+                );
             }
         }
 
         return list;
     }
 
+    // =========================================================
+    // 构造历史查询条件
+    // =========================================================
     private static QueryWrapper<QuoteDetail> getQuoteDetailQueryWrapper(String quoteNo, String remarks) {
         QueryWrapper<QuoteDetail> wrapper = new QueryWrapper<>();
 
-        // 1. 如果第一个框(单号/规格)有值，生成 OR 条件
+        // 单号 / 规格代码 模糊匹配（OR 关系）
         if (quoteNo != null && !quoteNo.trim().isEmpty()) {
-            String searchKey = "%" + quoteNo.trim().toUpperCase() + "%";
-            wrapper.and(w -> w
-                    .like("spec_code", searchKey)
-                    .or()
-                    .like("quote_no", searchKey)
-            );
+            String key = "%" + quoteNo.trim().toUpperCase() + "%";
+            wrapper.and(w -> w.like("spec_code", key).or().like("quote_no", key));
         }
 
-        // 2. 如果第二个框(备注)有值，生成 AND 独立的 LIKE 条件
+        // 备注模糊匹配（AND 关系，独立条件）
         if (remarks != null && !remarks.trim().isEmpty()) {
-            // 注意：这里直接 .like 即可，Mybatis Plus 默认会用 AND 连接前面的条件
             wrapper.like("remarks", "%" + remarks.trim() + "%");
         }
 
