@@ -50,4 +50,7 @@ public class QuoteDetail {
 
     @TableField(exist = false)
     private BigDecimal amount; // 用于在历史列表中展示的计算总金额
+
+    @TableField(exist = false)
+    private String currency;
 }
