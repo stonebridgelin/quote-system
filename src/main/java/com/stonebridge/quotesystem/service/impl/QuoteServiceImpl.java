@@ -380,7 +380,10 @@ public class QuoteServiceImpl implements IQuoteService {
             if (imgData != null) {
                 try {
                     if (imgData instanceof byte[]) {
-                        dto.setPhoto((byte[]) imgData);
+                        byte[] bytes = (byte[]) imgData;
+                        if (bytes.length > 0) {
+                            dto.setPhoto(bytes);
+                        }
                     } else if (imgData instanceof java.sql.Blob) {
                         java.sql.Blob blob = (java.sql.Blob) imgData;
                         dto.setPhoto(blob.getBytes(1, (int) blob.length()));
