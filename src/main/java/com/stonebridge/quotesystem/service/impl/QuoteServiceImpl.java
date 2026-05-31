@@ -37,6 +37,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.text.Format;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -143,7 +144,18 @@ public class QuoteServiceImpl implements IQuoteService {
             // 1. 设置响应头
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             response.setCharacterEncoding("utf-8");
-            String fileName = URLEncoder.encode("Quote_" + quoteNo, StandardCharsets.UTF_8)
+            // 获取当前日期，格式为 yyyyMMdd
+            String dateStr = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+            // 生成 5 位随机大写字母 (A-Z)
+            StringBuilder randomStr = new StringBuilder(5);
+            for (int j = 0; j < 5; j++) {
+                // 随机生成 0-25 的数字，加上 'A' 的 ASCII 码转换为对应的大写字母
+                randomStr.append((char) ('A' + java.util.concurrent.ThreadLocalRandom.current().nextInt(26)));
+            }
+            // 拼接新的文件名，例如：Quote_20260531_ADSGA
+            String rawFileName = "Quotation_" + dateStr + "_" + randomStr;
+            // 进行 URL 编码以防万一（虽然全英文字符+数字实际上不需要编码，但保留此逻辑可确保规范统一）
+            String fileName = java.net.URLEncoder.encode(rawFileName, java.nio.charset.StandardCharsets.UTF_8)
                     .replaceAll("\\+", "%20");
             response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
 
