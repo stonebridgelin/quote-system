@@ -84,9 +84,11 @@ public class QuoteExportDTO {
     private BigDecimal gwTotal;
 
     @ExcelProperty(value = "U.PRICE", index = 16)
-    private String unitPrice;
+    // ★ 修复：从 String 改为 BigDecimal
+    private BigDecimal unitPrice;
 
     @ExcelProperty(value = "AMOUNT", index = 17)
     @ColumnWidth(20)
-    private String amount;
+    // ★ 修复：从 String 改为 BigDecimal
+    private BigDecimal amount;
 }
