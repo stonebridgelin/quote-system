@@ -122,6 +122,7 @@ public class QuoteServiceImpl implements IQuoteService {
 
                 toInsert.add(detail);
             }
+            // 注解了 @TableField(exist = false) 的 description 在此处 insertBatch 时会自动被忽略
             quoteDetailMapper.insertBatch(toInsert);
         }
 
@@ -164,6 +165,9 @@ public class QuoteServiceImpl implements IQuoteService {
                     new QueryWrapper<QuoteDetail>()
                             .eq("quote_no", quoteNo)
                             .orderByAsc("item_index"));
+
+            // ★ 补充装填产品的 Description
+            populateDescriptions(detailList);
 
             // 3. 查主表获取币种及符号
             QuoteMain main = quoteMainMapper.selectOne(
@@ -464,6 +468,9 @@ public class QuoteServiceImpl implements IQuoteService {
             return page;
         }
 
+        // ★ 补充装填产品的 Description
+        populateDescriptions(records);
+
         for (QuoteDetail detail : records) {
             detail.setPrice(detail.getOriginalPrice());
             calculateAmount(detail);
@@ -486,6 +493,10 @@ public class QuoteServiceImpl implements IQuoteService {
                 .orderByAsc("item_index");
 
         List<QuoteDetail> list = quoteDetailMapper.selectList(wrapper);
+
+        // ★ 补充装填产品的 Description
+        populateDescriptions(list);
+
         QuoteMain main = quoteMainMapper.selectOne(
                 new QueryWrapper<QuoteMain>().eq("quote_no", quoteNo));
         String currency = main != null ? main.getCurrency() : "USD";
@@ -508,6 +519,41 @@ public class QuoteServiceImpl implements IQuoteService {
                             .multiply(BigDecimal.valueOf(detail.getPcs()))
                             .multiply(BigDecimal.valueOf(detail.getCtns()))
             );
+        }
+    }
+
+    /**
+     * 批量查询并装填 QuoteDetail 列表的 Description
+     */
+    private void populateDescriptions(List<QuoteDetail> list) {
+        if (list == null || list.isEmpty()) return;
+
+        // 提取所有不重复的 specCode
+        List<String> specCodes = list.stream()
+                .map(QuoteDetail::getSpecCode)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (!specCodes.isEmpty()) {
+            // 通过 IShapeSpecService 去 t_shape_spec 中反查对应的描述
+            List<ShapeSpec> specList = shapeSpecService.list(
+                    new QueryWrapper<ShapeSpec>()
+                            .select("spec_code", "description") // 仅选择需要字段以提升性能
+                            .in("spec_code", specCodes)
+            );
+
+            // 组装成 Map 加速匹配
+            Map<String, String> descMap = specList.stream()
+                    .filter(s -> s.getSpecCode() != null && s.getDescription() != null)
+                    .collect(Collectors.toMap(ShapeSpec::getSpecCode, ShapeSpec::getDescription, (a, b) -> a));
+
+            // 将 description 赋值给相应的 detail 数据行
+            for (QuoteDetail detail : list) {
+                if (detail.getSpecCode() != null && descMap.containsKey(detail.getSpecCode())) {
+                    detail.setDescription(descMap.get(detail.getSpecCode()));
+                }
+            }
         }
     }
 

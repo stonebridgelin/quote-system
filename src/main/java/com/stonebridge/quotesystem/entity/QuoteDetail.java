@@ -13,6 +13,8 @@ public class QuoteDetail {
     private String quoteNo;
     private Integer itemIndex;
     private String specCode;
+    // ★ 修改：声明该字段不存于 t_quote_detail 数据库表中
+    @TableField(exist = false)
     private String description;
     private String design;
     private Integer pcsPerSet;
