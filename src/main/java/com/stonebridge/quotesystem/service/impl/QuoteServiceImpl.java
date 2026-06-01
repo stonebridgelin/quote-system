@@ -35,26 +35,16 @@ import com.alibaba.excel.write.style.row.SimpleRowHeightStyleStrategy;
 import javax.servlet.http.HttpServletResponse;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.text.Format;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
  * 报价单 Service 实现
- *
- * 优化记录：
- * 1. getQuoteID()        - 修复 Integer.MIN_VALUE 溢出 bug，改用 UUID 末 6 位保证唯一性
- * 2. saveQuote()         - 明细改为批量插入，消除 N 次单条 INSERT 性能问题
- * 3. exportQuote()       - 引入 slf4j 日志，消除异常静默吞掉和 printStackTrace
- * 4. buildExportDTO()    - 改为接收预查询的 shapeInfoMap，消除 N+1 查询问题
- * 5. calculateAmount()   - 抽取金额补算公共方法，消除 getHistoryPage/getDetailsByQuoteNo 重复代码
- * 6. buildColumnWidthStrategy() - 修正图片列判断逻辑（原用 EMPTY 类型语义错误）
- * 7. 依赖注入            - 改为构造器注入，字段 final，符合 Spring 规范
- * 8. 格式化修复           - 采用 EasyExcel 官方推荐的 WriteCellData 注入方式，完美解决动态货币符号丢失问题
  */
 @Service
 public class QuoteServiceImpl implements IQuoteService {
@@ -73,9 +63,6 @@ public class QuoteServiceImpl implements IQuoteService {
         this.shapeSpecService = shapeSpecService;
     }
 
-    // =========================================================
-    // 保存报价单（新增 / 全删全建更新）
-    // =========================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String saveQuote(QuoteSaveDTO dto) {
@@ -122,7 +109,6 @@ public class QuoteServiceImpl implements IQuoteService {
 
                 toInsert.add(detail);
             }
-            // 注解了 @TableField(exist = false) 的 description 在此处 insertBatch 时会自动被忽略
             quoteDetailMapper.insertBatch(toInsert);
         }
 
@@ -142,40 +128,31 @@ public class QuoteServiceImpl implements IQuoteService {
     @Override
     public void exportQuote(String quoteNo, HttpServletResponse response) {
         try {
-            // 1. 设置响应头
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             response.setCharacterEncoding("utf-8");
-            // 获取当前日期，格式为 yyyyMMdd
+
             String dateStr = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
-            // 生成 5 位随机大写字母 (A-Z)
             StringBuilder randomStr = new StringBuilder(5);
             for (int j = 0; j < 5; j++) {
-                // 随机生成 0-25 的数字，加上 'A' 的 ASCII 码转换为对应的大写字母
                 randomStr.append((char) ('A' + java.util.concurrent.ThreadLocalRandom.current().nextInt(26)));
             }
-            // 拼接新的文件名，例如：Quote_20260531_ADSGA
             String rawFileName = "Quotation_" + dateStr + "_" + randomStr;
-            // 进行 URL 编码以防万一（虽然全英文字符+数字实际上不需要编码，但保留此逻辑可确保规范统一）
             String fileName = java.net.URLEncoder.encode(rawFileName, java.nio.charset.StandardCharsets.UTF_8)
                     .replaceAll("\\+", "%20");
             response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
 
-            // 2. 按 item_index 升序查询明细
             List<QuoteDetail> detailList = quoteDetailMapper.selectList(
                     new QueryWrapper<QuoteDetail>()
                             .eq("quote_no", quoteNo)
                             .orderByAsc("item_index"));
 
-            // ★ 补充装填产品的 Description
             populateDescriptions(detailList);
 
-            // 3. 查主表获取币种及符号
             QuoteMain main = quoteMainMapper.selectOne(
                     new QueryWrapper<QuoteMain>().eq("quote_no", quoteNo));
             String currency = (main != null && main.getCurrency() != null) ? main.getCurrency() : "USD";
             String symbol = "RMB".equals(currency) ? "¥" : "$";
 
-            // 批量查询所有器型图片，消除 N+1 查询
             List<String> specCodes = detailList.stream()
                     .map(QuoteDetail::getSpecCode)
                     .filter(Objects::nonNull)
@@ -198,16 +175,44 @@ public class QuoteServiceImpl implements IQuoteService {
             List<QuoteExportDTO> exportList = new ArrayList<>(detailList.size());
             for (int i = 0; i < detailList.size(); i++) {
                 QuoteExportDTO exportDTO = buildExportDTO(detailList.get(i), symbol, shapeInfoMap);
-                exportDTO.setItemIndex(i + 1);
                 exportList.add(exportDTO);
             }
 
-            // ========== 样式配置 ==========
+            // ★ 后端重排序：聚合相同的器型，参数数字降序（与前端严格一致）
+            exportList.sort((a, b) -> {
+                String shapeA = a.getShapeCode() != null ? a.getShapeCode() : "";
+                String shapeB = b.getShapeCode() != null ? b.getShapeCode() : "";
 
-            // ① 表头样式
+                int shapeCmp = shapeA.compareTo(shapeB);
+                if (shapeCmp != 0) {
+                    return shapeCmp;
+                }
+
+                int numA = extractSizeNumber(a.getSpecCode());
+                int numB = extractSizeNumber(b.getSpecCode());
+                return Integer.compare(numB, numA); // 降序
+            });
+
+            // 重新分配 itemIndex 并计算 groupIndex 用于渲染斑马纹
+            String currentShape = null;
+            int groupIndex = -1;
+            for (int i = 0; i < exportList.size(); i++) {
+                QuoteExportDTO dto = exportList.get(i);
+                dto.setItemIndex(i + 1);
+
+                String shape = dto.getShapeCode() != null ? dto.getShapeCode() : "";
+                if (!shape.equals(currentShape)) {
+                    currentShape = shape;
+                    groupIndex++;
+                }
+                dto.setGroupIndex(groupIndex);
+            }
+
+            // ========== 样式配置 ==========
             WriteCellStyle headStyle = new WriteCellStyle();
             headStyle.setFillPatternType(FillPatternType.SOLID_FOREGROUND);
-            headStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            // 头部为了与灰底色区分，将原来的 25% 加深为 40% 灰色
+            headStyle.setFillForegroundColor(IndexedColors.GREY_40_PERCENT.getIndex());
             WriteFont headFont = new WriteFont();
             headFont.setFontName("Calibri");
             headFont.setFontHeightInPoints((short) 11);
@@ -217,7 +222,6 @@ public class QuoteServiceImpl implements IQuoteService {
             headStyle.setVerticalAlignment(VerticalAlignment.CENTER);
             setCellBorder(headStyle);
 
-            // ② 内容样式
             WriteCellStyle contentStyle = new WriteCellStyle();
             WriteFont contentFont = new WriteFont();
             contentFont.setFontName("Calibri");
@@ -231,23 +235,21 @@ public class QuoteServiceImpl implements IQuoteService {
             HorizontalCellStyleStrategy styleStrategy =
                     new HorizontalCellStyleStrategy(headStyle, contentStyle);
 
-            // ③ 行高策略
             SimpleRowHeightStyleStrategy rowHeightStrategy =
                     new SimpleRowHeightStyleStrategy((short) 30, (short) 60);
 
-            // ④ 自定义列宽策略
             AbstractColumnWidthStyleStrategy columnWidthStrategy = buildColumnWidthStrategy();
 
-            // ⑤ 实例化我们重构后的格式拦截器 (16: U.PRICE, 17: AMOUNT)
-            CurrencyFormatCellWriteHandler currencyFormatHandler =
-                    new CurrencyFormatCellWriteHandler(Arrays.asList(16, 17), currency);
+            // ★ 替换为全新的多功能样式拦截器
+            QuoteDynamicStyleCellWriteHandler styleHandler =
+                    new QuoteDynamicStyleCellWriteHandler(Arrays.asList(16, 17), currency, exportList);
 
             // ========== 写出 Excel ==========
             EasyExcel.write(response.getOutputStream(), QuoteExportDTO.class)
                     .registerWriteHandler(styleStrategy)
                     .registerWriteHandler(rowHeightStrategy)
                     .registerWriteHandler(columnWidthStrategy)
-                    .registerWriteHandler(currencyFormatHandler) // 注册全新的拦截器
+                    .registerWriteHandler(styleHandler) // 注册多功能样式拦截器
                     .registerWriteHandler(new ShapeImageMergeStrategy(exportList))
                     .sheet("Quote Data")
                     .doWrite(exportList);
@@ -259,40 +261,61 @@ public class QuoteServiceImpl implements IQuoteService {
     }
 
     /**
-     * 【全新重构】自定义单元格格式拦截器
-     *
-     * 核心改变：不再强行修改 POI 的 CellStyle（会被流式导出覆盖），
-     * 而是利用 EasyExcel 的 afterCellDataConverted 钩子，
-     * 直接修改 WriteCellData 的底层属性，让 EasyExcel 的样式字典帮我们安全地渲染格式。
+     * 辅助方法：通过正则提取尺寸中的第一组数字（如 FLMLW75 中的 75）
      */
-    private static class CurrencyFormatCellWriteHandler implements CellWriteHandler {
+    private int extractSizeNumber(String specCode) {
+        if (specCode == null) return 0;
+        Matcher m = Pattern.compile("^([a-zA-Z]+)(\\d*)").matcher(specCode);
+        if (m.find()) {
+            String numStr = m.group(2);
+            return (numStr != null && !numStr.isEmpty()) ? Integer.parseInt(numStr) : 0;
+        }
+        return 0;
+    }
+
+    /**
+     * 【终极版】动态样式拦截器：基于行数据对象（DTO）同时实现「货币格式化」及「灰白斑马纹背景」
+     */
+    private static class QuoteDynamicStyleCellWriteHandler implements CellWriteHandler {
         private final List<Integer> targetColumnIndexes;
         private final String currency;
+        private final List<QuoteExportDTO> exportList;
 
-        public CurrencyFormatCellWriteHandler(List<Integer> targetColumnIndexes, String currency) {
+        public QuoteDynamicStyleCellWriteHandler(List<Integer> targetColumnIndexes, String currency, List<QuoteExportDTO> exportList) {
             this.targetColumnIndexes = targetColumnIndexes;
             this.currency = currency;
+            this.exportList = exportList;
         }
 
         @Override
         public void afterCellDataConverted(WriteSheetHolder writeSheetHolder, WriteTableHolder writeTableHolder,
                                            WriteCellData<?> cellData, Cell cell, Head head, Integer relativeRowIndex, Boolean isHead) {
-            // 仅拦截非表头，且在我们指定的目标列中
-            if (Boolean.FALSE.equals(isHead) && cellData != null && targetColumnIndexes.contains(cell.getColumnIndex())) {
+            if (Boolean.TRUE.equals(isHead) || cellData == null || relativeRowIndex == null) {
+                return;
+            }
 
-                // 拿到 EasyExcel 当前为这个单元格准备好的样式对象
-                WriteCellStyle writeCellStyle = cellData.getOrCreateStyle();
+            WriteCellStyle writeCellStyle = cellData.getOrCreateStyle();
 
-                // 获取或初始化数据格式属性
+            // 1. 设置原生货币数字格式
+            if (targetColumnIndexes.contains(cell.getColumnIndex())) {
                 DataFormatData dataFormatData = writeCellStyle.getDataFormatData();
                 if (dataFormatData == null) {
                     dataFormatData = new DataFormatData();
                     writeCellStyle.setDataFormatData(dataFormatData);
                 }
-
-                // 使用最标准、直白的带转义货币格式，交给引擎处理
-                String formatStr = "RMB".equals(currency) ? "\"¥\"#,##0.00" : "\"$\"#,##0.00";
+                String formatStr = "RMB".equals(currency) ? "[$¥-804]#,##0.00" : "[$$-409]#,##0.00";
                 dataFormatData.setFormat(formatStr);
+            }
+
+            // 2. 根据 DTO 里的 groupIndex 动态绘制底色
+            QuoteExportDTO dto = exportList.get(relativeRowIndex);
+            if (dto != null && dto.getGroupIndex() != null) {
+                if (dto.getGroupIndex() % 2 == 0) {
+                    writeCellStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+                } else {
+                    writeCellStyle.setFillForegroundColor(IndexedColors.WHITE.getIndex());
+                }
+                writeCellStyle.setFillPatternType(FillPatternType.SOLID_FOREGROUND);
             }
         }
     }
@@ -308,14 +331,9 @@ public class QuoteServiceImpl implements IQuoteService {
                                           Head head,
                                           Integer relativeRowIndex,
                                           Boolean isHead) {
-                if (cellDataList == null || cellDataList.isEmpty()) {
-                    return;
-                }
-
+                if (cellDataList == null || cellDataList.isEmpty()) return;
                 if (head != null && (head.getHeadNameList() == null
-                        || head.getHeadNameList().stream().allMatch(s -> s == null || s.isEmpty()))) {
-                    return;
-                }
+                        || head.getHeadNameList().stream().allMatch(s -> s == null || s.isEmpty()))) return;
 
                 int columnIndex = cell.getColumnIndex();
                 int dataLength = 0;
@@ -373,14 +391,10 @@ public class QuoteServiceImpl implements IQuoteService {
         cellStyle.setBottomBorderColor(IndexedColors.BLACK.getIndex());
     }
 
-    /**
-     * 将单条明细实体组装成导出 DTO
-     */
     private QuoteExportDTO buildExportDTO(QuoteDetail detail, String symbol,
                                           Map<String, Map<String, Object>> shapeInfoMap) {
         QuoteExportDTO dto = new QuoteExportDTO();
 
-        // 基础字段映射
         dto.setSpecCode(detail.getSpecCode());
         dto.setDescription(detail.getDescription());
         dto.setDesign(detail.getDesign());
@@ -392,7 +406,6 @@ public class QuoteServiceImpl implements IQuoteService {
         dto.setNwCtn(detail.getNwCtn());
         dto.setTtlPcs(detail.getTtlPcs());
 
-        // 从预查 Map 中取器型图片
         Map<String, Object> shapeInfo = detail.getSpecCode() != null
                 ? shapeInfoMap.get(detail.getSpecCode()) : null;
 
@@ -403,9 +416,7 @@ public class QuoteServiceImpl implements IQuoteService {
                 try {
                     if (imgData instanceof byte[]) {
                         byte[] bytes = (byte[]) imgData;
-                        if (bytes.length > 0) {
-                            dto.setPhoto(bytes);
-                        }
+                        if (bytes.length > 0) dto.setPhoto(bytes);
                     } else if (imgData instanceof java.sql.Blob) {
                         java.sql.Blob blob = (java.sql.Blob) imgData;
                         dto.setPhoto(blob.getBytes(1, (int) blob.length()));
@@ -418,31 +429,21 @@ public class QuoteServiceImpl implements IQuoteService {
             dto.setShapeCode(detail.getSpecCode() != null ? detail.getSpecCode() : "EMPTY_SPEC");
         }
 
-        // 单价（直接放入 BigDecimal，拦截器负责格式化）
         if (detail.getUnitPrice() != null) {
             dto.setUnitPrice(detail.getUnitPrice());
         }
 
-        // 箱数相关汇总
         if (detail.getCtns() != null && detail.getCtns() > 0) {
             BigDecimal ctnsDec = BigDecimal.valueOf(detail.getCtns());
             dto.setCtns(detail.getCtns());
 
-            if (detail.getCbmCtn() != null) {
-                dto.setCbmTotal(detail.getCbmCtn().multiply(ctnsDec));
-            }
-            if (detail.getGwCtn() != null) {
-                dto.setGwTotal(detail.getGwCtn().multiply(ctnsDec));
-            }
-            if (detail.getNwCtn() != null) {
-                dto.setNwTotal(detail.getNwCtn().multiply(ctnsDec));
-            }
-
+            if (detail.getCbmCtn() != null) dto.setCbmTotal(detail.getCbmCtn().multiply(ctnsDec));
+            if (detail.getGwCtn() != null) dto.setGwTotal(detail.getGwCtn().multiply(ctnsDec));
+            if (detail.getNwCtn() != null) dto.setNwTotal(detail.getNwCtn().multiply(ctnsDec));
             if (dto.getTtlPcs() == null && detail.getPcs() != null) {
                 dto.setTtlPcs(detail.getPcs() * detail.getCtns());
             }
 
-            // 金额（直接放入 BigDecimal，拦截器负责格式化）
             if (detail.getUnitPrice() != null && detail.getPcs() != null) {
                 BigDecimal amt = detail.getUnitPrice()
                         .multiply(BigDecimal.valueOf(detail.getPcs()))
@@ -455,9 +456,6 @@ public class QuoteServiceImpl implements IQuoteService {
         return dto;
     }
 
-    // =========================================================
-    // 历史报价分页查询
-    // =========================================================
     @Override
     public Page<QuoteDetail> getHistoryPage(Integer current, Integer size, String quoteNo, String remarks) {
         Page<QuoteDetail> page = new Page<>(current, size);
@@ -468,7 +466,6 @@ public class QuoteServiceImpl implements IQuoteService {
             return page;
         }
 
-        // ★ 补充装填产品的 Description
         populateDescriptions(records);
 
         for (QuoteDetail detail : records) {
@@ -479,9 +476,6 @@ public class QuoteServiceImpl implements IQuoteService {
         return page;
     }
 
-    // =========================================================
-    // 按单号查整单明细
-    // =========================================================
     @Override
     public List<QuoteDetail> getDetailsByQuoteNo(String quoteNo) {
         if (quoteNo == null || quoteNo.trim().isEmpty()) {
@@ -494,7 +488,6 @@ public class QuoteServiceImpl implements IQuoteService {
 
         List<QuoteDetail> list = quoteDetailMapper.selectList(wrapper);
 
-        // ★ 补充装填产品的 Description
         populateDescriptions(list);
 
         QuoteMain main = quoteMainMapper.selectOne(
@@ -522,13 +515,9 @@ public class QuoteServiceImpl implements IQuoteService {
         }
     }
 
-    /**
-     * 批量查询并装填 QuoteDetail 列表的 Description
-     */
     private void populateDescriptions(List<QuoteDetail> list) {
         if (list == null || list.isEmpty()) return;
 
-        // 提取所有不重复的 specCode
         List<String> specCodes = list.stream()
                 .map(QuoteDetail::getSpecCode)
                 .filter(Objects::nonNull)
@@ -536,19 +525,16 @@ public class QuoteServiceImpl implements IQuoteService {
                 .collect(Collectors.toList());
 
         if (!specCodes.isEmpty()) {
-            // 通过 IShapeSpecService 去 t_shape_spec 中反查对应的描述
             List<ShapeSpec> specList = shapeSpecService.list(
                     new QueryWrapper<ShapeSpec>()
-                            .select("spec_code", "description") // 仅选择需要字段以提升性能
+                            .select("spec_code", "description")
                             .in("spec_code", specCodes)
             );
 
-            // 组装成 Map 加速匹配
             Map<String, String> descMap = specList.stream()
                     .filter(s -> s.getSpecCode() != null && s.getDescription() != null)
                     .collect(Collectors.toMap(ShapeSpec::getSpecCode, ShapeSpec::getDescription, (a, b) -> a));
 
-            // 将 description 赋值给相应的 detail 数据行
             for (QuoteDetail detail : list) {
                 if (detail.getSpecCode() != null && descMap.containsKey(detail.getSpecCode())) {
                     detail.setDescription(descMap.get(detail.getSpecCode()));

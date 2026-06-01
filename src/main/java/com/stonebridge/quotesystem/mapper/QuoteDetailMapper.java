@@ -23,11 +23,12 @@ public interface QuoteDetailMapper extends BaseMapper<QuoteDetail> {
      * 批量插入报价明细
      * 字段严格对照 QuoteDetail 实体（排除 @TableField(exist=false) 的虚拟字段）
      * id 由数据库 AUTO_INCREMENT 生成，create_time 由 MP 自动填充，均不传入
+     * ★ 修复：已将 description 字段从插入语句和 values 中移除
      */
     @Insert({
             "<script>",
             "INSERT INTO t_quote_detail (",
-            "  quote_no, item_index, spec_code, description, design,",
+            "  quote_no, item_index, spec_code, design,",
             "  pcs_per_set, sets_per_ctn, pcs, ctns, ttl_pcs,",
             "  cbm_ctn, gw_ctn, nw_ctn,",
             "  unit_price, original_price, extra_price,",
@@ -35,7 +36,7 @@ public interface QuoteDetailMapper extends BaseMapper<QuoteDetail> {
             ") VALUES",
             "<foreach collection='list' item='d' separator=','>",
             "(",
-            "  #{d.quoteNo}, #{d.itemIndex}, #{d.specCode}, #{d.description}, #{d.design},",
+            "  #{d.quoteNo}, #{d.itemIndex}, #{d.specCode}, #{d.design},",
             "  #{d.pcsPerSet}, #{d.setsPerCtn}, #{d.pcs}, #{d.ctns}, #{d.ttlPcs},",
             "  #{d.cbmCtn}, #{d.gwCtn}, #{d.nwCtn},",
             "  #{d.unitPrice}, #{d.originalPrice}, #{d.extraPrice},",
