@@ -178,19 +178,29 @@ public class QuoteServiceImpl implements IQuoteService {
                 exportList.add(exportDTO);
             }
 
-            // ★ 后端重排序：聚合相同的器型，参数数字降序（与前端严格一致）
-            exportList.sort((a, b) -> {
-                String shapeA = a.getShapeCode() != null ? a.getShapeCode() : "";
-                String shapeB = b.getShapeCode() != null ? b.getShapeCode() : "";
+            // ★ 安全校验：记录每个 ShapePrefix 首次出现的索引，保持原有的添加顺序
+            Map<String, Integer> shapeFirstIndexMap = new HashMap<>();
+            for (int i = 0; i < exportList.size(); i++) {
+                QuoteExportDTO dto = exportList.get(i);
+                // 使用和前端相同的正则提取确保稳定
+                String shapePrefix = extractShapePrefix(dto.getSpecCode());
+                shapeFirstIndexMap.putIfAbsent(shapePrefix, i);
+            }
 
-                int shapeCmp = shapeA.compareTo(shapeB);
-                if (shapeCmp != 0) {
-                    return shapeCmp;
+            // 执行排序
+            exportList.sort((a, b) -> {
+                String shapeA = extractShapePrefix(a.getSpecCode());
+                String shapeB = extractShapePrefix(b.getSpecCode());
+
+                // 先按类别首次出现的位置排序（新增类靠后）
+                if (!shapeA.equals(shapeB)) {
+                    return Integer.compare(shapeFirstIndexMap.get(shapeA), shapeFirstIndexMap.get(shapeB));
                 }
 
+                // 同类别下，按数字升序
                 int numA = extractSizeNumber(a.getSpecCode());
                 int numB = extractSizeNumber(b.getSpecCode());
-                return Integer.compare(numB, numA); // 降序
+                return Integer.compare(numA, numB);
             });
 
             // 重新分配 itemIndex 并计算 groupIndex 用于渲染斑马纹
@@ -200,9 +210,9 @@ public class QuoteServiceImpl implements IQuoteService {
                 QuoteExportDTO dto = exportList.get(i);
                 dto.setItemIndex(i + 1);
 
-                String shape = dto.getShapeCode() != null ? dto.getShapeCode() : "";
-                if (!shape.equals(currentShape)) {
-                    currentShape = shape;
+                String shapePrefix = extractShapePrefix(dto.getSpecCode());
+                if (!shapePrefix.equals(currentShape)) {
+                    currentShape = shapePrefix;
                     groupIndex++;
                 }
                 dto.setGroupIndex(groupIndex);
@@ -211,7 +221,6 @@ public class QuoteServiceImpl implements IQuoteService {
             // ========== 样式配置 ==========
             WriteCellStyle headStyle = new WriteCellStyle();
             headStyle.setFillPatternType(FillPatternType.SOLID_FOREGROUND);
-            // 头部为了与灰底色区分，将原来的 25% 加深为 40% 灰色
             headStyle.setFillForegroundColor(IndexedColors.GREY_40_PERCENT.getIndex());
             WriteFont headFont = new WriteFont();
             headFont.setFontName("Calibri");
@@ -240,7 +249,6 @@ public class QuoteServiceImpl implements IQuoteService {
 
             AbstractColumnWidthStyleStrategy columnWidthStrategy = buildColumnWidthStrategy();
 
-            // ★ 替换为全新的多功能样式拦截器
             QuoteDynamicStyleCellWriteHandler styleHandler =
                     new QuoteDynamicStyleCellWriteHandler(Arrays.asList(16, 17), currency, exportList);
 
@@ -249,7 +257,7 @@ public class QuoteServiceImpl implements IQuoteService {
                     .registerWriteHandler(styleStrategy)
                     .registerWriteHandler(rowHeightStrategy)
                     .registerWriteHandler(columnWidthStrategy)
-                    .registerWriteHandler(styleHandler) // 注册多功能样式拦截器
+                    .registerWriteHandler(styleHandler)
                     .registerWriteHandler(new ShapeImageMergeStrategy(exportList))
                     .sheet("Quote Data")
                     .doWrite(exportList);
@@ -261,9 +269,21 @@ public class QuoteServiceImpl implements IQuoteService {
     }
 
     /**
-     * 辅助方法：通过正则提取尺寸中的第一组数字（如 FLMLW75 中的 75）
+     * 【坚固优化】提取器型英文字母前缀（镜像前端正则算法）
      */
-    private int extractSizeNumber(String specCode) {
+    private static String extractShapePrefix(String specCode) {
+        if (specCode == null) return "";
+        Matcher m = Pattern.compile("^([a-zA-Z]+)").matcher(specCode);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return specCode;
+    }
+
+    /**
+     * 【坚固优化】提取器型尺寸数字（镜像前端正则算法）
+     */
+    private static int extractSizeNumber(String specCode) {
         if (specCode == null) return 0;
         Matcher m = Pattern.compile("^([a-zA-Z]+)(\\d*)").matcher(specCode);
         if (m.find()) {
@@ -274,7 +294,7 @@ public class QuoteServiceImpl implements IQuoteService {
     }
 
     /**
-     * 【终极版】动态样式拦截器：基于行数据对象（DTO）同时实现「货币格式化」及「灰白斑马纹背景」
+     * 动态样式拦截器
      */
     private static class QuoteDynamicStyleCellWriteHandler implements CellWriteHandler {
         private final List<Integer> targetColumnIndexes;
@@ -426,7 +446,8 @@ public class QuoteServiceImpl implements IQuoteService {
                 }
             }
         } else {
-            dto.setShapeCode(detail.getSpecCode() != null ? detail.getSpecCode() : "EMPTY_SPEC");
+            // ★ 安全校验：如果在库中没有匹配到该产品的器型图片信息，强制使用正则截取前缀做为后续的策略合并依据，保证和斑马纹保持同一维度！
+            dto.setShapeCode(extractShapePrefix(detail.getSpecCode()));
         }
 
         if (detail.getUnitPrice() != null) {
