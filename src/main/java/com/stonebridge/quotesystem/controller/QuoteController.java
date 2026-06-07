@@ -3,6 +3,7 @@ package com.stonebridge.quotesystem.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.stonebridge.quotesystem.common.Result;
 import com.stonebridge.quotesystem.entity.QuoteDetail;
+import com.stonebridge.quotesystem.entity.QuoteMain;
 import com.stonebridge.quotesystem.entity.dto.QuoteSaveDTO;
 import com.stonebridge.quotesystem.service.IQuoteService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,7 +54,7 @@ public class QuoteController {
      * 分页查询历史报价明细
      */
     @GetMapping("/history/page")
-    public Result<Page<QuoteDetail>> getHistoryPage(
+    public Result<Page<QuoteMain>> getHistoryPage(
             @RequestParam(defaultValue = "1") Integer current,
             @RequestParam(defaultValue = "15") Integer size,
             @RequestParam(required = false) String quoteNo,

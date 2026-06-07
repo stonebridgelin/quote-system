@@ -7,13 +7,12 @@ import java.util.List;
 
 @Data
 public class QuoteSaveDTO {
-    // 【新增】：用于接收当前单号。为空说明是新建，有值说明是更新
     private String quoteNo;
-    // 抬头信息
     private String currency;
     private BigDecimal exchangeRate;
+
+    // ★ 新增：接收前端弹窗输入的全局备注/客户标识
     private String remark;
 
-    // 明细列表
     private List<QuoteDetail> detailList;
 }

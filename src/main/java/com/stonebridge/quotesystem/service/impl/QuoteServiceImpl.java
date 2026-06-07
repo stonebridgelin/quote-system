@@ -70,21 +70,23 @@ public class QuoteServiceImpl implements IQuoteService {
         boolean isUpdate = (quoteNo != null && !quoteNo.trim().isEmpty());
 
         if (isUpdate) {
+            // 【1. 更新操作】：只把 remark 等元数据更新到 t_quote_main
             UpdateWrapper<QuoteMain> mainUpdate = new UpdateWrapper<>();
             mainUpdate.eq("quote_no", quoteNo)
                     .set("currency", dto.getCurrency() != null ? dto.getCurrency() : "USD")
                     .set("exchange_rate", dto.getExchangeRate())
-                    .set("remark", dto.getRemark());
+                    .set("remark", dto.getRemark()); // ★ 将备注更新到主表
             quoteMainMapper.update(null, mainUpdate);
 
             quoteDetailMapper.delete(new QueryWrapper<QuoteDetail>().eq("quote_no", quoteNo));
         } else {
+            // 【2. 新增操作】：新建单号，并将 remark 保存入 t_quote_main
             quoteNo = getQuoteID();
             QuoteMain main = new QuoteMain();
             main.setQuoteNo(quoteNo);
             main.setCurrency(dto.getCurrency() != null ? dto.getCurrency() : "USD");
             main.setExchangeRate(dto.getExchangeRate());
-            main.setRemark(dto.getRemark());
+            main.setRemark(dto.getRemark()); // ★ 将备注保存到主表
             quoteMainMapper.insert(main);
         }
 
@@ -477,24 +479,27 @@ public class QuoteServiceImpl implements IQuoteService {
         return dto;
     }
 
+    // =========================================================
+    // 历史报价分页查询 (重构为查询主表 t_quote_main)
+    // =========================================================
     @Override
-    public Page<QuoteDetail> getHistoryPage(Integer current, Integer size, String quoteNo, String remarks) {
-        Page<QuoteDetail> page = new Page<>(current, size);
-        quoteDetailMapper.selectPage(page, getQuoteDetailQueryWrapper(quoteNo, remarks));
+    public Page<QuoteMain> getHistoryPage(Integer current, Integer size, String quoteNo, String remarks) {
+        Page<QuoteMain> page = new Page<>(current, size);
+        QueryWrapper<QuoteMain> wrapper = new QueryWrapper<>();
 
-        List<QuoteDetail> records = page.getRecords();
-        if (records == null || records.isEmpty()) {
-            return page;
+        if (quoteNo != null && !quoteNo.trim().isEmpty()) {
+            wrapper.like("quote_no", quoteNo.trim().toUpperCase());
         }
 
-        populateDescriptions(records);
-
-        for (QuoteDetail detail : records) {
-            detail.setPrice(detail.getOriginalPrice());
-            calculateAmount(detail);
+        // 对主表的 remark 进行模糊匹配
+        if (remarks != null && !remarks.trim().isEmpty()) {
+            wrapper.like("remark", remarks.trim());
         }
 
-        return page;
+        // 按更新时间或创建时间倒序排列
+        wrapper.orderByDesc("update_time", "create_time");
+
+        return quoteMainMapper.selectPage(page, wrapper);
     }
 
     @Override
@@ -562,21 +567,5 @@ public class QuoteServiceImpl implements IQuoteService {
                 }
             }
         }
-    }
-
-    private static QueryWrapper<QuoteDetail> getQuoteDetailQueryWrapper(String quoteNo, String remarks) {
-        QueryWrapper<QuoteDetail> wrapper = new QueryWrapper<>();
-
-        if (quoteNo != null && !quoteNo.trim().isEmpty()) {
-            String key = "%" + quoteNo.trim().toUpperCase() + "%";
-            wrapper.and(w -> w.like("spec_code", key).or().like("quote_no", key));
-        }
-
-        if (remarks != null && !remarks.trim().isEmpty()) {
-            wrapper.like("remarks", "%" + remarks.trim() + "%");
-        }
-
-        wrapper.orderByDesc("create_time");
-        return wrapper;
     }
 }
