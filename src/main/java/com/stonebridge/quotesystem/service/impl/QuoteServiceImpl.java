@@ -128,7 +128,7 @@ public class QuoteServiceImpl implements IQuoteService {
     // 导出报价单 Excel
     // =========================================================
     @Override
-    public void exportQuote(String quoteNo, HttpServletResponse response) {
+    public void exportQuote(String quoteNo, List<String> columns, HttpServletResponse response) {
         try {
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             response.setCharacterEncoding("utf-8");
@@ -220,6 +220,16 @@ public class QuoteServiceImpl implements IQuoteService {
                 dto.setGroupIndex(groupIndex);
             }
 
+            // ★ 核心逻辑：解析前端传来的 columns 参数，计算需要排除（不导出）的列
+            Set<String> excludeFields = new HashSet<>();
+            List<String> validCols = (columns != null) ? columns : Collections.emptyList();
+            if (!validCols.contains("weight")) excludeFields.add("weight");
+            if (!validCols.contains("dimension")) excludeFields.add("dimension");
+            if (!validCols.contains("price")) excludeFields.add("price");
+            if (!validCols.contains("extraPrice")) excludeFields.add("extraPrice");
+            if (!validCols.contains("cartonWeight")) excludeFields.add("cartonWeight");
+            if (!validCols.contains("remarks")) excludeFields.add("remarks");
+
             // ========== 样式配置 ==========
             WriteCellStyle headStyle = new WriteCellStyle();
             headStyle.setFillPatternType(FillPatternType.SOLID_FOREGROUND);
@@ -252,10 +262,11 @@ public class QuoteServiceImpl implements IQuoteService {
             AbstractColumnWidthStyleStrategy columnWidthStrategy = buildColumnWidthStrategy();
 
             QuoteDynamicStyleCellWriteHandler styleHandler =
-                    new QuoteDynamicStyleCellWriteHandler(Arrays.asList(16, 17), currency, exportList);
+                    new QuoteDynamicStyleCellWriteHandler(currency, exportList);
 
             // ========== 写出 Excel ==========
             EasyExcel.write(response.getOutputStream(), QuoteExportDTO.class)
+                    .excludeColumnFieldNames(excludeFields) // ★ 动态剔除未勾选字段
                     .registerWriteHandler(styleStrategy)
                     .registerWriteHandler(rowHeightStrategy)
                     .registerWriteHandler(columnWidthStrategy)
@@ -296,15 +307,13 @@ public class QuoteServiceImpl implements IQuoteService {
     }
 
     /**
-     * 动态样式拦截器
+     * ★ 优化重构后的动态样式拦截器：彻底废弃原始 Index 识别，改为按 FieldName 稳定绑定
      */
     private static class QuoteDynamicStyleCellWriteHandler implements CellWriteHandler {
-        private final List<Integer> targetColumnIndexes;
         private final String currency;
         private final List<QuoteExportDTO> exportList;
 
-        public QuoteDynamicStyleCellWriteHandler(List<Integer> targetColumnIndexes, String currency, List<QuoteExportDTO> exportList) {
-            this.targetColumnIndexes = targetColumnIndexes;
+        public QuoteDynamicStyleCellWriteHandler(String currency, List<QuoteExportDTO> exportList) {
             this.currency = currency;
             this.exportList = exportList;
         }
@@ -318,8 +327,8 @@ public class QuoteServiceImpl implements IQuoteService {
 
             WriteCellStyle writeCellStyle = cellData.getOrCreateStyle();
 
-            // 1. 设置原生货币数字格式
-            if (targetColumnIndexes.contains(cell.getColumnIndex())) {
+            // 1. 设置原生货币数字格式：通过字段名精确锁定单价和总额列，防止列减少后格式位移
+            if (head != null && ("unitPrice".equals(head.getFieldName()) || "amount".equals(head.getFieldName()))) {
                 DataFormatData dataFormatData = writeCellStyle.getDataFormatData();
                 if (dataFormatData == null) {
                     dataFormatData = new DataFormatData();
@@ -427,6 +436,14 @@ public class QuoteServiceImpl implements IQuoteService {
         dto.setGwCtn(detail.getGwCtn());
         dto.setNwCtn(detail.getNwCtn());
         dto.setTtlPcs(detail.getTtlPcs());
+
+        // ★ 新增：装填定制勾选列的基础数据
+        dto.setWeight(detail.getWeight());
+        dto.setDimension(detail.getDimension());
+        dto.setPrice(detail.getOriginalPrice());
+        dto.setExtraPrice(detail.getExtraPrice());
+        dto.setCartonWeight(detail.getCartonWeight());
+        dto.setRemarks(detail.getRemarks());
 
         Map<String, Object> shapeInfo = detail.getSpecCode() != null
                 ? shapeInfoMap.get(detail.getSpecCode()) : null;

@@ -46,8 +46,11 @@ public class QuoteController {
      * 注意：这里不能返回 Result 包装类，因为直接输出的是文件流
      */
     @GetMapping("/export/{quoteNo}")
-    public void exportQuote(@PathVariable String quoteNo, HttpServletResponse response) {
-        quoteService.exportQuote(quoteNo, response);
+    public void exportQuote(@PathVariable("quoteNo") String quoteNo,
+                            @RequestParam(value = "columns", required = false) List<String> columns,
+                            HttpServletResponse response) {
+        // 调用业务层进行处理
+        quoteService.exportQuote(quoteNo, columns, response);
     }
 
     /**

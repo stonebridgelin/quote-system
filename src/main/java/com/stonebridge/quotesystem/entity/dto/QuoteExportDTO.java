@@ -13,70 +13,93 @@ import java.math.BigDecimal;
 @HeadRowHeight(25)
 public class QuoteExportDTO {
 
+    // 不需要导出的字段保留 @ExcelIgnore
     @ExcelIgnore
     private String shapeCode;
 
     @ExcelIgnore
     private byte[] photo;
 
-    // ★ 新增：用于在导出时记录分组下标，以便控制斑马纹单元格背景色
     @ExcelIgnore
     private Integer groupIndex;
 
-    @ExcelProperty(value = "NO.", index = 0)
+    // ★ 下面所有的 @ExcelProperty 移除了固定的 index 属性，使其支持动态自然平移
+    @ExcelProperty("NO.")
     private Integer itemIndex;
 
-    @ExcelProperty(value = "ITEM NO.", index = 1)
+    @ExcelProperty("ITEM NO.")
     private String specCode;
 
-    @ExcelProperty(value = "DESCRIPTION", index = 2)
+    @ExcelProperty("DESCRIPTION")
     @ColumnWidth(30)
     private String description;
 
-    @ExcelProperty(value = "Product photo", index = 3)
+    @ExcelProperty("Product photo")
     @ColumnWidth(42)
     private String photoPlaceholder;
 
-    @ExcelProperty(value = "DESIGN", index = 4)
+    @ExcelProperty("DESIGN")
     private String design;
 
-    @ExcelProperty(value = "PCS/SET", index = 5)
+    @ExcelProperty("PCS/SET")
     private Integer pcsPerSet;
 
-    @ExcelProperty(value = "SETS/CTN", index = 6)
+    @ExcelProperty("SETS/CTN")
     private Integer setsPerCtn;
 
-    @ExcelProperty(value = "PCS", index = 7)
+    @ExcelProperty("PCS")
     private Integer pcs;
 
-    @ExcelProperty(value = "TTL PCS", index = 8)
+    @ExcelProperty("TTL PCS")
     private Integer ttlPcs;
 
-    @ExcelProperty(value = "TTL CTNs", index = 9)
+    @ExcelProperty("TTL CTNs")
     private Integer ctns;
 
-    @ExcelProperty(value = {"CBM", "ctn"}, index = 10)
+    @ExcelProperty({"CBM", "ctn"})
     private BigDecimal cbmCtn;
 
-    @ExcelProperty(value = {"CBM", "total"}, index = 11)
+    @ExcelProperty({"CBM", "total"})
     private BigDecimal cbmTotal;
 
-    @ExcelProperty(value = {"N.W.(kg)", "ctn"}, index = 12)
+    @ExcelProperty({"N.W.(kg)", "ctn"})
     private BigDecimal nwCtn;
 
-    @ExcelProperty(value = {"N.W.(kg)", "total"}, index = 13)
+    @ExcelProperty({"N.W.(kg)", "total"})
     private BigDecimal nwTotal;
 
-    @ExcelProperty(value = {"G.W.(kg)", "ctn"}, index = 14)
+    @ExcelProperty({"G.W.(kg)", "ctn"})
     private BigDecimal gwCtn;
 
-    @ExcelProperty(value = {"G.W.(kg)", "total"}, index = 15)
+    @ExcelProperty({"G.W.(kg)", "total"})
     private BigDecimal gwTotal;
 
-    @ExcelProperty(value = "U.PRICE", index = 16)
+    @ExcelProperty("U.PRICE")
     private BigDecimal unitPrice;
 
-    @ExcelProperty(value = "AMOUNT", index = 17)
+    @ExcelProperty("AMOUNT")
     @ColumnWidth(20)
     private BigDecimal amount;
+
+    // --- 动态可选列 ---
+
+    @ExcelProperty("Weight(g)")
+    private BigDecimal weight;
+
+    @ExcelProperty("Volume(cm)")
+    @ColumnWidth(15)
+    private String dimension;
+
+    @ExcelProperty("Price(吨价)")
+    private BigDecimal price;
+
+    @ExcelProperty("额外价格(¥)")
+    private BigDecimal extraPrice;
+
+    @ExcelProperty("Carton(kg)")
+    private BigDecimal cartonWeight;
+
+    @ExcelProperty("备注信息")
+    @ColumnWidth(25)
+    private String remarks;
 }

@@ -11,7 +11,7 @@ import java.util.List;
 public interface IQuoteService {
     String saveQuote(QuoteSaveDTO dto);
 
-    void exportQuote(String quoteNo, HttpServletResponse response);
+    void exportQuote(String quoteNo, List<String> columns, HttpServletResponse response);
     // IQuoteService.java 中新增：
 
     Page<QuoteMain> getHistoryPage(Integer current, Integer size, String quoteNo, String remarks);
