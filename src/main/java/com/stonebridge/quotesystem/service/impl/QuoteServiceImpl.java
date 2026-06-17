@@ -111,7 +111,10 @@ public class QuoteServiceImpl implements IQuoteService {
 
                 toInsert.add(detail);
             }
-            quoteDetailMapper.insertBatch(toInsert);
+            // 替换 quoteDetailMapper.insertBatch(toInsert); 为：
+            for (QuoteDetail detail : toInsert) {
+                quoteDetailMapper.insert(detail);
+            }
         }
 
         return quoteNo;
@@ -266,8 +269,13 @@ public class QuoteServiceImpl implements IQuoteService {
 
             // ========== 写出 Excel ==========
             EasyExcel.write(response.getOutputStream(), QuoteExportDTO.class)
-                    .excludeColumnFieldNames(excludeFields) // ★ 动态剔除未勾选字段
-                    .registerWriteHandler(styleStrategy)
+                    .inMemory(true) // ★ 补丁1：必须开启内存模式，防止 SXSSF 刷盘导致 drawing1.xml 损坏！
+                    .excludeColumnFieldNames(excludeFields) // 保留你的完美动态列剔除逻辑
+
+                    // ★ 补丁2：建议移除 .registerWriteHandler(styleStrategy)
+                    // 因为官方的 styleStrategy 很容易覆盖掉你下面自定义的 QuoteDynamicStyleCellWriteHandler 里的货币格式。
+                    // 只要你的 QuoteDynamicStyleCellWriteHandler 里已经写好了边框和背景色，就不需要官方这个策略了。
+
                     .registerWriteHandler(rowHeightStrategy)
                     .registerWriteHandler(columnWidthStrategy)
                     .registerWriteHandler(styleHandler)
@@ -327,7 +335,7 @@ public class QuoteServiceImpl implements IQuoteService {
 
             WriteCellStyle writeCellStyle = cellData.getOrCreateStyle();
 
-            // 1. 设置原生货币数字格式：通过字段名精确锁定单价和总额列，防止列减少后格式位移
+            // 1. 设置原生货币数字格式
             if (head != null && ("unitPrice".equals(head.getFieldName()) || "amount".equals(head.getFieldName()))) {
                 DataFormatData dataFormatData = writeCellStyle.getDataFormatData();
                 if (dataFormatData == null) {
@@ -347,6 +355,21 @@ public class QuoteServiceImpl implements IQuoteService {
                     writeCellStyle.setFillForegroundColor(IndexedColors.WHITE.getIndex());
                 }
                 writeCellStyle.setFillPatternType(FillPatternType.SOLID_FOREGROUND);
+
+                // ★ 修复：必须在此处重新赋予边框，防止纯色背景遮挡原生网格线
+                writeCellStyle.setBorderLeft(BorderStyle.THIN);
+                writeCellStyle.setBorderRight(BorderStyle.THIN);
+                writeCellStyle.setBorderTop(BorderStyle.THIN);
+                writeCellStyle.setBorderBottom(BorderStyle.THIN);
+                writeCellStyle.setLeftBorderColor(IndexedColors.BLACK.getIndex());
+                writeCellStyle.setRightBorderColor(IndexedColors.BLACK.getIndex());
+                writeCellStyle.setTopBorderColor(IndexedColors.BLACK.getIndex());
+                writeCellStyle.setBottomBorderColor(IndexedColors.BLACK.getIndex());
+
+                // 为了让内容更好看，顺便保证居中和自动换行属性不丢失
+                writeCellStyle.setHorizontalAlignment(HorizontalAlignment.CENTER);
+                writeCellStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+                writeCellStyle.setWrapped(Boolean.TRUE);
             }
         }
     }

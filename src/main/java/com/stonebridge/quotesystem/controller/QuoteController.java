@@ -45,14 +45,16 @@ public class QuoteController {
      * 导出报价单到 Excel
      * 注意：这里不能返回 Result 包装类，因为直接输出的是文件流
      */
+    /**
+     * 导出报价单
+     */
     @GetMapping("/export/{quoteNo}")
-    public void exportQuote(@PathVariable("quoteNo") String quoteNo,
-                            @RequestParam(value = "columns", required = false) List<String> columns,
-                            HttpServletResponse response) {
-        // 调用业务层进行处理
+    public void exportQuote(
+            @PathVariable String quoteNo,
+            @RequestParam(required = false) List<String> columns, // <--- 修改为 List<String>
+            HttpServletResponse response) {
         quoteService.exportQuote(quoteNo, columns, response);
     }
-
     /**
      * 分页查询历史报价明细
      */
