@@ -51,7 +51,7 @@ public class QuoteController {
     @GetMapping("/export/{quoteNo}")
     public void exportQuote(
             @PathVariable String quoteNo,
-            @RequestParam(required = false) List<String> columns, // <--- 修改为 List<String>
+            @RequestParam(required = false) List<String> columns, // ★ 接收前端传来的动态列数组
             HttpServletResponse response) {
         quoteService.exportQuote(quoteNo, columns, response);
     }

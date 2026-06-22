@@ -25,6 +25,7 @@ import com.stonebridge.quotesystem.strategy.ShapeImageMergeStrategy;
 import org.apache.poi.ss.usermodel.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,9 +44,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/**
- * 报价单 Service 实现
- */
 @Service
 public class QuoteServiceImpl implements IQuoteService {
 
@@ -70,23 +68,23 @@ public class QuoteServiceImpl implements IQuoteService {
         boolean isUpdate = (quoteNo != null && !quoteNo.trim().isEmpty());
 
         if (isUpdate) {
-            // 【1. 更新操作】：只把 remark 等元数据更新到 t_quote_main
             UpdateWrapper<QuoteMain> mainUpdate = new UpdateWrapper<>();
             mainUpdate.eq("quote_no", quoteNo)
                     .set("currency", dto.getCurrency() != null ? dto.getCurrency() : "USD")
                     .set("exchange_rate", dto.getExchangeRate())
-                    .set("remark", dto.getRemark()); // ★ 将备注更新到主表
+                    .set("remark", dto.getRemark());
             quoteMainMapper.update(null, mainUpdate);
 
             quoteDetailMapper.delete(new QueryWrapper<QuoteDetail>().eq("quote_no", quoteNo));
         } else {
-            // 【2. 新增操作】：新建单号，并将 remark 保存入 t_quote_main
             quoteNo = getQuoteID();
             QuoteMain main = new QuoteMain();
             main.setQuoteNo(quoteNo);
             main.setCurrency(dto.getCurrency() != null ? dto.getCurrency() : "USD");
             main.setExchangeRate(dto.getExchangeRate());
-            main.setRemark(dto.getRemark()); // ★ 将备注保存到主表
+            main.setRemark(dto.getRemark());
+            String currentUser = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+            main.setCreator(currentUser);
             quoteMainMapper.insert(main);
         }
 
@@ -111,7 +109,7 @@ public class QuoteServiceImpl implements IQuoteService {
 
                 toInsert.add(detail);
             }
-            // 替换 quoteDetailMapper.insertBatch(toInsert); 为：
+            // 使用安全循环插入，防止 insertBatch 报错
             for (QuoteDetail detail : toInsert) {
                 quoteDetailMapper.insert(detail);
             }
@@ -127,9 +125,6 @@ public class QuoteServiceImpl implements IQuoteService {
         return timeStr + suffix;
     }
 
-    // =========================================================
-    // 导出报价单 Excel
-    // =========================================================
     @Override
     public void exportQuote(String quoteNo, List<String> columns, HttpServletResponse response) {
         try {
@@ -146,6 +141,7 @@ public class QuoteServiceImpl implements IQuoteService {
                     .replaceAll("\\+", "%20");
             response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
 
+            // 按 item_index 升序查询明细，绝对忠实于前端传来的顺序
             List<QuoteDetail> detailList = quoteDetailMapper.selectList(
                     new QueryWrapper<QuoteDetail>()
                             .eq("quote_no", quoteNo)
@@ -176,46 +172,23 @@ public class QuoteServiceImpl implements IQuoteService {
                         ));
             }
 
-            // 4. 组装导出 DTO 列表
+            // 组装导出 DTO 列表
             List<QuoteExportDTO> exportList = new ArrayList<>(detailList.size());
             for (int i = 0; i < detailList.size(); i++) {
                 QuoteExportDTO exportDTO = buildExportDTO(detailList.get(i), symbol, shapeInfoMap);
                 exportList.add(exportDTO);
             }
 
-            // ★ 安全校验：记录每个 ShapePrefix 首次出现的索引，保持原有的添加顺序
-            Map<String, Integer> shapeFirstIndexMap = new HashMap<>();
-            for (int i = 0; i < exportList.size(); i++) {
-                QuoteExportDTO dto = exportList.get(i);
-                // 使用和前端相同的正则提取确保稳定
-                String shapePrefix = extractShapePrefix(dto.getSpecCode());
-                shapeFirstIndexMap.putIfAbsent(shapePrefix, i);
-            }
-
-            // 执行排序
-            exportList.sort((a, b) -> {
-                String shapeA = extractShapePrefix(a.getSpecCode());
-                String shapeB = extractShapePrefix(b.getSpecCode());
-
-                // 先按类别首次出现的位置排序（新增类靠后）
-                if (!shapeA.equals(shapeB)) {
-                    return Integer.compare(shapeFirstIndexMap.get(shapeA), shapeFirstIndexMap.get(shapeB));
-                }
-
-                // 同类别下，按数字升序
-                int numA = extractSizeNumber(a.getSpecCode());
-                int numB = extractSizeNumber(b.getSpecCode());
-                return Integer.compare(numA, numB);
-            });
-
-            // 重新分配 itemIndex 并计算 groupIndex 用于渲染斑马纹
+            // 重新分配 itemIndex 并计算 groupIndex 用于渲染斑马纹 (完全沿用此时的数组顺序)
             String currentShape = null;
             int groupIndex = -1;
             for (int i = 0; i < exportList.size(); i++) {
                 QuoteExportDTO dto = exportList.get(i);
                 dto.setItemIndex(i + 1);
 
-                String shapePrefix = extractShapePrefix(dto.getSpecCode());
+                // ★ 核心修复1：直接使用从数据库拿到的、决定图片合并的真实 ShapeCode！
+                // 绝对不要在这里重新去用正则提取，保证斑马纹和图片合并的依据 100% 统一。
+                String shapePrefix = dto.getShapeCode();
                 if (!shapePrefix.equals(currentShape)) {
                     currentShape = shapePrefix;
                     groupIndex++;
@@ -223,7 +196,7 @@ public class QuoteServiceImpl implements IQuoteService {
                 dto.setGroupIndex(groupIndex);
             }
 
-            // ★ 核心逻辑：解析前端传来的 columns 参数，计算需要排除（不导出）的列
+            // 解析前端传来的 columns 参数，计算需要排除（不导出）的列
             Set<String> excludeFields = new HashSet<>();
             List<String> validCols = (columns != null) ? columns : Collections.emptyList();
             if (!validCols.contains("weight")) excludeFields.add("weight");
@@ -256,6 +229,7 @@ public class QuoteServiceImpl implements IQuoteService {
             contentStyle.setWrapped(Boolean.TRUE);
             setCellBorder(contentStyle);
 
+            // 保留基础样式策略，用于表头
             HorizontalCellStyleStrategy styleStrategy =
                     new HorizontalCellStyleStrategy(headStyle, contentStyle);
 
@@ -269,13 +243,9 @@ public class QuoteServiceImpl implements IQuoteService {
 
             // ========== 写出 Excel ==========
             EasyExcel.write(response.getOutputStream(), QuoteExportDTO.class)
-                    .inMemory(true) // ★ 补丁1：必须开启内存模式，防止 SXSSF 刷盘导致 drawing1.xml 损坏！
-                    .excludeColumnFieldNames(excludeFields) // 保留你的完美动态列剔除逻辑
-
-                    // ★ 补丁2：建议移除 .registerWriteHandler(styleStrategy)
-                    // 因为官方的 styleStrategy 很容易覆盖掉你下面自定义的 QuoteDynamicStyleCellWriteHandler 里的货币格式。
-                    // 只要你的 QuoteDynamicStyleCellWriteHandler 里已经写好了边框和背景色，就不需要官方这个策略了。
-
+                    .inMemory(true) // ★ 内存模式，防止画图损坏
+                    .excludeColumnFieldNames(excludeFields) // 动态剔除未勾选字段
+                    .registerWriteHandler(styleStrategy)
                     .registerWriteHandler(rowHeightStrategy)
                     .registerWriteHandler(columnWidthStrategy)
                     .registerWriteHandler(styleHandler)
@@ -290,11 +260,12 @@ public class QuoteServiceImpl implements IQuoteService {
     }
 
     /**
-     * 【坚固优化】提取器型英文字母前缀（镜像前端正则算法）
+     * 【增强优化】提取器型英文字母前缀（兼容数字开头的型号，如 1LMSPDP80 -> 1LMSPDP）
      */
     private static String extractShapePrefix(String specCode) {
         if (specCode == null) return "";
-        Matcher m = Pattern.compile("^([a-zA-Z]+)").matcher(specCode);
+        // ★ 核心修复2：允许前缀包含开头数字
+        Matcher m = Pattern.compile("^([0-9]*[a-zA-Z]+)").matcher(specCode);
         if (m.find()) {
             return m.group(1);
         }
@@ -302,11 +273,12 @@ public class QuoteServiceImpl implements IQuoteService {
     }
 
     /**
-     * 【坚固优化】提取器型尺寸数字（镜像前端正则算法）
+     * 【增强优化】提取器型尺寸数字
      */
     private static int extractSizeNumber(String specCode) {
         if (specCode == null) return 0;
-        Matcher m = Pattern.compile("^([a-zA-Z]+)(\\d*)").matcher(specCode);
+        // ★ 核心修复2：允许前缀包含开头数字
+        Matcher m = Pattern.compile("^([0-9]*[a-zA-Z]+)(\\d*)").matcher(specCode);
         if (m.find()) {
             String numStr = m.group(2);
             return (numStr != null && !numStr.isEmpty()) ? Integer.parseInt(numStr) : 0;
@@ -315,7 +287,7 @@ public class QuoteServiceImpl implements IQuoteService {
     }
 
     /**
-     * ★ 优化重构后的动态样式拦截器：彻底废弃原始 Index 识别，改为按 FieldName 稳定绑定
+     * 动态样式拦截器：精准按 FieldName 赋予货币格式，重塑斑马纹并保留网格线边框
      */
     private static class QuoteDynamicStyleCellWriteHandler implements CellWriteHandler {
         private final String currency;
@@ -356,7 +328,7 @@ public class QuoteServiceImpl implements IQuoteService {
                 }
                 writeCellStyle.setFillPatternType(FillPatternType.SOLID_FOREGROUND);
 
-                // ★ 修复：必须在此处重新赋予边框，防止纯色背景遮挡原生网格线
+                // ★ 修复：重新赋予边框，防止纯色背景遮挡原生网格线
                 writeCellStyle.setBorderLeft(BorderStyle.THIN);
                 writeCellStyle.setBorderRight(BorderStyle.THIN);
                 writeCellStyle.setBorderTop(BorderStyle.THIN);
@@ -366,7 +338,6 @@ public class QuoteServiceImpl implements IQuoteService {
                 writeCellStyle.setTopBorderColor(IndexedColors.BLACK.getIndex());
                 writeCellStyle.setBottomBorderColor(IndexedColors.BLACK.getIndex());
 
-                // 为了让内容更好看，顺便保证居中和自动换行属性不丢失
                 writeCellStyle.setHorizontalAlignment(HorizontalAlignment.CENTER);
                 writeCellStyle.setVerticalAlignment(VerticalAlignment.CENTER);
                 writeCellStyle.setWrapped(Boolean.TRUE);
@@ -460,7 +431,6 @@ public class QuoteServiceImpl implements IQuoteService {
         dto.setNwCtn(detail.getNwCtn());
         dto.setTtlPcs(detail.getTtlPcs());
 
-        // ★ 新增：装填定制勾选列的基础数据
         dto.setWeight(detail.getWeight());
         dto.setDimension(detail.getDimension());
         dto.setPrice(detail.getOriginalPrice());
@@ -488,7 +458,6 @@ public class QuoteServiceImpl implements IQuoteService {
                 }
             }
         } else {
-            // ★ 安全校验：如果在库中没有匹配到该产品的器型图片信息，强制使用正则截取前缀做为后续的策略合并依据，保证和斑马纹保持同一维度！
             dto.setShapeCode(extractShapePrefix(detail.getSpecCode()));
         }
 
@@ -519,26 +488,24 @@ public class QuoteServiceImpl implements IQuoteService {
         return dto;
     }
 
-    // =========================================================
-    // 历史报价分页查询 (重构为查询主表 t_quote_main)
-    // =========================================================
     @Override
     public Page<QuoteMain> getHistoryPage(Integer current, Integer size, String quoteNo, String remarks) {
         Page<QuoteMain> page = new Page<>(current, size);
         QueryWrapper<QuoteMain> wrapper = new QueryWrapper<>();
 
+        // ★ 新增：数据隔离，只能查询当前登录人创建的数据
+        String currentUser = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        wrapper.eq("creator", currentUser);
+
         if (quoteNo != null && !quoteNo.trim().isEmpty()) {
             wrapper.like("quote_no", quoteNo.trim().toUpperCase());
         }
 
-        // 对主表的 remark 进行模糊匹配
         if (remarks != null && !remarks.trim().isEmpty()) {
             wrapper.like("remark", remarks.trim());
         }
 
-        // 按更新时间或创建时间倒序排列
         wrapper.orderByDesc("update_time", "create_time");
-
         return quoteMainMapper.selectPage(page, wrapper);
     }
 
