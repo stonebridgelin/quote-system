@@ -72,7 +72,10 @@ public class QuoteServiceImpl implements IQuoteService {
             mainUpdate.eq("quote_no", quoteNo)
                     .set("currency", dto.getCurrency() != null ? dto.getCurrency() : "USD")
                     .set("exchange_rate", dto.getExchangeRate())
-                    .set("remark", dto.getRemark());
+                    .set("remark", dto.getRemark())
+                    // ★ 新增：更新时记录最新的更新时间
+                    .set("update_time", java.time.LocalDateTime.now());
+
             quoteMainMapper.update(null, mainUpdate);
 
             quoteDetailMapper.delete(new QueryWrapper<QuoteDetail>().eq("quote_no", quoteNo));
@@ -85,6 +88,11 @@ public class QuoteServiceImpl implements IQuoteService {
             main.setRemark(dto.getRemark());
             String currentUser = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
             main.setCreator(currentUser);
+
+            // ★ 新增：新建时同时记录创建时间和更新时间
+            main.setCreateTime(java.time.LocalDateTime.now());
+            main.setUpdateTime(java.time.LocalDateTime.now());
+
             quoteMainMapper.insert(main);
         }
 
@@ -495,7 +503,8 @@ public class QuoteServiceImpl implements IQuoteService {
 
         // ★ 新增：数据隔离，只能查询当前登录人创建的数据
         String currentUser = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        wrapper.eq("creator", currentUser);
+        // 使用 and(w -> ...) 嵌套，等价于 SQL 中的：AND (creator = '当前用户' OR creator IS NULL)
+        wrapper.and(w -> w.eq("creator", currentUser).or().isNull("creator"));
 
         if (quoteNo != null && !quoteNo.trim().isEmpty()) {
             wrapper.like("quote_no", quoteNo.trim().toUpperCase());

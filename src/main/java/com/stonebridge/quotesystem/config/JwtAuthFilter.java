@@ -16,12 +16,20 @@ import java.util.Collections;
 public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+        String token = null;
+
+        // 1. 只允许从 Header 获取 Token
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
+            token = header.substring(7);
+        }
+
+        // 删除了 request.getParameter("token") 的妥协代码，彻底堵死 URL 泄露风险
+
+        // 2. 解析 Token 并放行
+        if (token != null) {
             String username = JwtUtils.getUsernameFromToken(token);
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                // 将当前登录用户的 username 放入 Security 上下文，供业务层使用
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(username, null, Collections.emptyList());
                 SecurityContextHolder.getContext().setAuthentication(auth);
             }
