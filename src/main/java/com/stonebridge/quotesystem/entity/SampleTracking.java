@@ -17,6 +17,8 @@ public class SampleTracking {
     private String creator;
     private LocalDateTime createTime;
     private LocalDateTime endTime;
+    // ★ 新增：更新时间字段
+    private LocalDateTime updateTime;
 
     // 非数据库字段，用于前端特殊排序和展示
     @TableField(exist = false)

@@ -97,7 +97,7 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class) // ★ 事务控制移交到 Service 层
+    @Transactional(rollbackFor = Exception.class)
     public void saveOrUpdate(SampleSaveDTO dto) {
         String currentUser = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
@@ -108,15 +108,17 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
             tracking.setCustomerInfo(dto.getCustomerInfo());
             tracking.setPlanDate(dto.getPlanDate());
             tracking.setRemarks(dto.getRemarks());
-            tracking.setStatus("MAKING"); // 新建自动转为制作中
+            tracking.setStatus("MAKING");
             tracking.setCreator(currentUser);
             tracking.setCreateTime(LocalDateTime.now());
+            // ★ 新增：新建时同步写入更新时间
+            tracking.setUpdateTime(LocalDateTime.now());
             trackingMapper.insert(tracking);
         } else {
             // 更新
             tracking = trackingMapper.selectById(dto.getId());
             if (tracking == null) {
-                throw new RuntimeException("数据不存在"); // 抛出异常由 Controller 捕获
+                throw new RuntimeException("数据不存在");
             }
             if (dto.getRemarks() != null) tracking.setRemarks(dto.getRemarks());
             if (dto.getStatus() != null) {
@@ -126,13 +128,13 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
                     tracking.setEndTime(LocalDateTime.now());
                 }
             }
+            // ★ 新增：只要发生修改，就刷新更新时间
+            tracking.setUpdateTime(LocalDateTime.now());
             trackingMapper.updateById(tracking);
         }
 
-        // 全量删除该样品单下的旧图片，防止重复累加
         imageMapper.delete(new QueryWrapper<SampleImage>().eq("sample_id", tracking.getId()));
 
-        // 处理新传入的图片
         if (dto.getImages() != null && !dto.getImages().isEmpty()) {
             for (String base64 : dto.getImages()) {
                 SampleImage image = new SampleImage();
