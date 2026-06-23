@@ -1,5 +1,6 @@
 package com.stonebridge.quotesystem.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.stonebridge.quotesystem.entity.SampleTracking;
 import com.stonebridge.quotesystem.entity.dto.SampleSaveDTO;
 
@@ -7,9 +8,9 @@ import java.util.List;
 
 public interface ISampleTrackingService {
     /**
-     * 复杂查询与智能排序列表
+     * 复杂查询、智能排序并分页
      */
-    List<SampleTracking> getList(String keyword, List<String> statusList);
+    Page<SampleTracking> getListPage(Integer current, Integer size, String keyword, List<String> statusList);
 
     /**
      * 新增或更新样品单

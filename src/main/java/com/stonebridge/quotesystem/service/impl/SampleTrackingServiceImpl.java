@@ -1,6 +1,7 @@
 package com.stonebridge.quotesystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.stonebridge.quotesystem.entity.SampleImage;
 import com.stonebridge.quotesystem.entity.SampleTracking;
 import com.stonebridge.quotesystem.entity.dto.SampleSaveDTO;
@@ -27,18 +28,15 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
     private SampleImageMapper imageMapper;
 
     @Override
-    public List<SampleTracking> getList(String keyword, List<String> statusList) {
+    public Page<SampleTracking> getListPage(Integer current, Integer size, String keyword, List<String> statusList) {
         QueryWrapper<SampleTracking> wrapper = new QueryWrapper<>();
 
-        // 当前登录人隔离
         String currentUser = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        wrapper.eq("creator", currentUser);
+        wrapper.and(w -> w.eq("creator", currentUser).or().isNull("creator"));
 
-        // 模糊搜索
         if (keyword != null && !keyword.trim().isEmpty()) {
             wrapper.and(w -> w.like("customer_info", keyword).or().like("remarks", keyword));
         }
-        // 多状态筛选
         if (statusList != null && !statusList.isEmpty()) {
             wrapper.in("status", statusList);
         }
@@ -46,30 +44,28 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
         List<SampleTracking> list = trackingMapper.selectList(wrapper);
         LocalDate today = LocalDate.now();
 
-        // 核心排序算法：按照用户要求的层级进行组别划分
+        // 原有的核心排序算法保持不变
         for (SampleTracking item : list) {
             boolean isOverdue = item.getPlanDate().isBefore(today);
             item.setIsOverdue(isOverdue);
 
             if ("MAKING".equals(item.getStatus())) {
                 if (!isOverdue) {
-                    item.setSortGroup(1); // 最上面：制作中(未逾期)
+                    item.setSortGroup(1);
                 } else {
-                    item.setSortGroup(2); // 中间：制作中(逾期)
+                    item.setSortGroup(2);
                 }
             } else if ("SHIPPED".equals(item.getStatus())) {
-                item.setSortGroup(3); // 偏下：已打包寄出
+                item.setSortGroup(3);
             } else {
-                item.setSortGroup(4); // 最下面：已结束
+                item.setSortGroup(4);
             }
         }
 
         list.sort((a, b) -> {
-            // 优先按组别排序
             if (!a.getSortGroup().equals(b.getSortGroup())) {
                 return a.getSortGroup().compareTo(b.getSortGroup());
             }
-            // 组内排序逻辑
             if (a.getSortGroup() == 1) {
                 return a.getCreateTime().compareTo(b.getCreateTime());
             } else if (a.getSortGroup() == 2) {
@@ -82,7 +78,22 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
             return b.getCreateTime().compareTo(a.getCreateTime());
         });
 
-        return list;
+        // ★ 新增：内存分页逻辑
+        int total = list.size();
+        int fromIndex = (current - 1) * size;
+        int toIndex = Math.min(fromIndex + size, total);
+
+        List<SampleTracking> pageList;
+        if (fromIndex >= total) {
+            pageList = new java.util.ArrayList<>();
+        } else {
+            pageList = list.subList(fromIndex, toIndex);
+        }
+
+        // 封装为 Page 对象返回
+        Page<SampleTracking> page = new Page<>(current, size, total);
+        page.setRecords(pageList);
+        return page;
     }
 
     @Override

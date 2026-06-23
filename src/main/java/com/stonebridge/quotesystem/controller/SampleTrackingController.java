@@ -1,5 +1,6 @@
 package com.stonebridge.quotesystem.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.stonebridge.quotesystem.common.Result;
 import com.stonebridge.quotesystem.entity.SampleTracking;
 import com.stonebridge.quotesystem.entity.dto.SampleSaveDTO;
@@ -20,13 +21,18 @@ public class SampleTrackingController {
     /**
      * 1. 复杂查询与智能排序列表
      */
+    /**
+     * 1. 复杂查询与智能排序列表 (带分页)
+     */
     @GetMapping("/list")
-    public Result<List<SampleTracking>> getList(
+    public Result<Page<SampleTracking>> getList(
+            @RequestParam(defaultValue = "1") Integer current,
+            @RequestParam(defaultValue = "15") Integer size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) List<String> statusList) {
 
-        List<SampleTracking> list = sampleTrackingService.getList(keyword, statusList);
-        return Result.success(list);
+        Page<SampleTracking> page = sampleTrackingService.getListPage(current, size, keyword, statusList);
+        return Result.success(page);
     }
 
     /**
