@@ -12,6 +12,9 @@ import java.time.LocalDateTime;
 public class User {
     @TableId(type = IdType.AUTO)
     private Long id;
+    // ★ 新增：姓名和角色字段
+    private String name;
+    private String role;
     private String username;
     private String password;
     private LocalDateTime createTime;

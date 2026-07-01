@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.stonebridge.quotesystem.common.JwtUtils;
 import com.stonebridge.quotesystem.common.Result;
 import com.stonebridge.quotesystem.entity.User; // 注意：必须导入你自己的 User 实体类
+import com.stonebridge.quotesystem.entity.dto.RegisterDTO;
 import com.stonebridge.quotesystem.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -58,7 +59,7 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public Result<String> register(@RequestBody User registerUser) {
+    public Result<String> register(@RequestBody RegisterDTO registerUser) {
         try {
             // 后端二次校验
             if (!registerUser.getUsername().matches("^[a-zA-Z0-9]+$") || !registerUser.getPassword().matches("^[a-zA-Z0-9]+$")) {
@@ -75,6 +76,10 @@ public class AuthController {
             // 必须使用 BCrypt 加密后再存入数据库
             newUser.setPassword(passwordEncoder.encode(registerUser.getPassword()));
             newUser.setCreateTime(LocalDateTime.now());
+            // ★ 新增：写入用户填写的姓名
+            newUser.setName(registerUser.getName());
+            // ★ 新增：系统默认赋予角色 (这里以 "USER" 为例，你可以根据业务改为 "普通用户" 或其他枚举)
+            newUser.setRole("USER");
             userMapper.insert(newUser);
 
             // ★ 修复：让 "注册成功，请登录" 成为 data 字段的数据
