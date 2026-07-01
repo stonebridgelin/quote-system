@@ -21,4 +21,6 @@ public interface ISampleTrackingService {
      * 获取单条明细及图片
      */
     SampleSaveDTO getDetail(Long id);
+
+    void removeById(Long id);
 }

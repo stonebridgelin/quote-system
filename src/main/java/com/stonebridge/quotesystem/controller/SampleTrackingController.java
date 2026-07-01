@@ -61,4 +61,10 @@ public class SampleTrackingController {
             return Result.fail(e.getMessage());
         }
     }
+    @DeleteMapping("/delete/{id}")
+    public Result<String> deleteSample(@PathVariable Long id) {
+        // 由于配置了 @TableLogic，这里底层会自动执行 UPDATE t_sample_tracking SET del_flag = 1 WHERE id = ?
+        sampleTrackingService.removeById(id);
+        return Result.success("删除成功");
+    }
 }

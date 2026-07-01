@@ -19,7 +19,8 @@ public class SampleTracking {
     private LocalDateTime endTime;
     // ★ 新增：更新时间字段
     private LocalDateTime updateTime;
-
+    @TableLogic
+    private Integer delFlag;
     // 非数据库字段，用于前端特殊排序和展示
     @TableField(exist = false)
     private Integer sortGroup;

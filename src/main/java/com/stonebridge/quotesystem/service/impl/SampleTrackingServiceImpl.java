@@ -166,4 +166,9 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
 
         return dto;
     }
+
+    @Override
+    public void removeById(Long id) {
+        trackingMapper.deleteById(id);
+    }
 }
