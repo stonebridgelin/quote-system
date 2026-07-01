@@ -139,15 +139,44 @@ public class QuoteServiceImpl implements IQuoteService {
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             response.setCharacterEncoding("utf-8");
 
-            String dateStr = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
-            StringBuilder randomStr = new StringBuilder(5);
-            for (int j = 0; j < 5; j++) {
-                randomStr.append((char) ('A' + java.util.concurrent.ThreadLocalRandom.current().nextInt(26)));
+            // 1. 提前查询 QuoteMain，以便获取 remark 和 currency
+            QuoteMain main = quoteMainMapper.selectOne(
+                    new QueryWrapper<QuoteMain>().eq("quote_no", quoteNo));
+            String currency = (main != null && main.getCurrency() != null) ? main.getCurrency() : "USD";
+            String symbol = "RMB".equals(currency) ? "¥" : "$";
+
+            // 2. 提取并清洗 remark（防止用户输入含有不能作为文件名的特殊字符）
+            String remark = (main != null && main.getRemark() != null) ? main.getRemark().trim() : "";
+            if (!remark.isEmpty()) {
+                // 将非法文件名字符替换为下划线
+                remark = remark.replaceAll("[\\\\/:*?\"<>|]", "_");
             }
+
+            // 3. 生成 ddHHmmss(日时分秒) 格式时间串
+            String dateStr = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("ddHHmmss"));
+
+            // 4. 生成 5位 随机字符+数字 的字符串
+            String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            StringBuilder randomStr = new StringBuilder(5);
+            java.util.concurrent.ThreadLocalRandom rnd = java.util.concurrent.ThreadLocalRandom.current();
+            for (int j = 0; j < 5; j++) {
+                randomStr.append(chars.charAt(rnd.nextInt(chars.length())));
+            }
+
+            // 5. 拼装最终的 rawFileName
             String rawFileName = "Quotation_" + dateStr + "_" + randomStr;
+            if (!remark.isEmpty()) {
+                rawFileName += "_" + remark;
+            }
+
             String fileName = java.net.URLEncoder.encode(rawFileName, java.nio.charset.StandardCharsets.UTF_8)
                     .replaceAll("\\+", "%20");
-            response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
+
+            // ★★★ 核心修复：允许前端读取 Content-Disposition 响应头 ★★★
+            response.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+
+            // 设置下载文件名
+            response.setHeader("Content-Disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
 
             // 按 item_index 升序查询明细，绝对忠实于前端传来的顺序
             List<QuoteDetail> detailList = quoteDetailMapper.selectList(
@@ -156,11 +185,6 @@ public class QuoteServiceImpl implements IQuoteService {
                             .orderByAsc("item_index"));
 
             populateDescriptions(detailList);
-
-            QuoteMain main = quoteMainMapper.selectOne(
-                    new QueryWrapper<QuoteMain>().eq("quote_no", quoteNo));
-            String currency = (main != null && main.getCurrency() != null) ? main.getCurrency() : "USD";
-            String symbol = "RMB".equals(currency) ? "¥" : "$";
 
             List<String> specCodes = detailList.stream()
                     .map(QuoteDetail::getSpecCode)
