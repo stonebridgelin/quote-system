@@ -1,0 +1,75 @@
+package com.stonebridge.quotesystem.business.controller;
+
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.stonebridge.quotesystem.common.Result;
+import com.stonebridge.quotesystem.business.entity.SampleTracking;
+import com.stonebridge.quotesystem.business.entity.dto.SampleSaveDTO;
+import com.stonebridge.quotesystem.business.service.ISampleTrackingService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/sample")
+@CrossOrigin
+public class SampleTrackingController {
+
+    @Autowired
+    private ISampleTrackingService sampleTrackingService;
+
+    /**
+     * 1. 复杂查询与智能排序列表
+     */
+    /**
+     * 1. 复杂查询与智能排序列表 (带分页)
+     */
+    @PreAuthorize("hasAuthority('sample:page')")
+    @GetMapping("/list")
+    public Result<Page<SampleTracking>> getList(
+            @RequestParam(defaultValue = "1") Integer current,
+            @RequestParam(defaultValue = "15") Integer size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) List<String> statusList) {
+
+        Page<SampleTracking> page = sampleTrackingService.getListPage(current, size, keyword, statusList);
+        return Result.success(page);
+    }
+
+    /**
+     * 2. 新增或更新样品单
+     */
+    @PreAuthorize("hasAnyAuthority('sample:create', 'sample:update')")
+    @PostMapping("/save")
+    public Result<String> saveOrUpdate(@RequestBody SampleSaveDTO dto) {
+        try {
+            sampleTrackingService.saveOrUpdate(dto);
+            return Result.success("保存成功");
+        } catch (RuntimeException e) {
+            // 捕获 Service 层抛出的 "数据不存在" 等业务异常
+            return Result.fail(e.getMessage());
+        }
+    }
+
+    /**
+     * 3. 获取单条明细及图片
+     */
+    @PreAuthorize("hasAuthority('sample:detail')")
+    @GetMapping("/detail/{id}")
+    public Result<SampleSaveDTO> getDetail(@PathVariable Long id) {
+        try {
+            SampleSaveDTO dto = sampleTrackingService.getDetail(id);
+            return Result.success(dto);
+        } catch (RuntimeException e) {
+            return Result.fail(e.getMessage());
+        }
+    }
+    @PreAuthorize("hasAuthority('sample:delete')")
+    @DeleteMapping("/delete/{id}")
+    public Result<String> deleteSample(@PathVariable Long id) {
+        // 由于配置了 @TableLogic，这里底层会自动执行 UPDATE t_sample_tracking SET del_flag = 1 WHERE id = ?
+        sampleTrackingService.removeById(id);
+        return Result.success("删除成功");
+    }
+}

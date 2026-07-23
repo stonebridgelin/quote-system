@@ -1,35 +1,96 @@
 server:
-    port: 8080 # 后端服务端口
-    address: 0.0.0.0
+  port: 8080
+  address: 0.0.0.0
+
+aliyun:
+  oss:
+    endpoint: "${ALIYUN_OSS_ENDPOINT:oss-cn-shanghai.aliyuncs.com}"
+    bucket: "${ALIYUN_OSS_BUCKET:你的bucket名称}"
+    access-key-id: "${ALIYUN_OSS_ACCESS_KEY_ID:}"
+    access-key-secret: "${ALIYUN_OSS_ACCESS_KEY_SECRET:}"
+    dir-prefix: "order-tracking"
+    expire-seconds: 300
+    max-size-mb: 10
 
 spring:
-    datasource:
-        # 你的数据库名称，假设我们刚才建的库叫 quote_db
-        # serverTimezone=Asia/Shanghai 解决时区问题，useUnicode=true&characterEncoding=utf-8 解决中文乱码
-        url: jdbc:mysql://127.0.0.1:3306/quote?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
-        username: root        # 修改为你的数据库账号
-        password: 123456        # 修改为你的数据库密码
-        driver-class-name: com.mysql.cj.jdbc.Driver
-    jackson:
-        date-format: yyyy-MM-dd HH:mm:ss
-        time-zone: GMT+8
-    servlet:
-      multipart:
-          enabled: true
-          max-file-size: 15MB
-          max-request-size: 300MB
+  application:
+    name: Quote-System
 
-# MyBatis-Plus 进阶配置
+  datasource:
+    druid:
+      business:
+        url: jdbc:mysql://127.0.0.1:3306/quote?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8
+        username: root
+        password: 123456
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        initial-size: 5
+        min-idle: 5
+        max-active: 20
+        max-wait: 60000
+        validation-query: SELECT 1
+        test-while-idle: true
+        test-on-borrow: false
+        test-on-return: false
+      system:
+        url: jdbc:mysql://127.0.0.1:3306/quote_auth?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8
+        username: root
+        password: 123456
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        initial-size: 3
+        min-idle: 3
+        max-active: 15
+        max-wait: 60000
+        validation-query: SELECT 1
+        test-while-idle: true
+        test-on-borrow: false
+        test-on-return: false
+
+  data:
+    redis:
+      host: 192.168.234.101
+      port: 6379
+      database: 0
+      password:
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 3000ms
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 15MB
+      max-request-size: 300MB
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
 mybatis-plus:
-    # 实体类扫描包路径 (填写你的实际包名)
-    type-aliases-package: com.stonebridge.quotesystem.entity
-    # Mapper XML 文件所在的路径
-    mapper-locations: classpath:mapper/*.xml
-    global-config:
-        db-config:
-            id-type: auto # 全局设置主键自增策略 (对应我们 SQL 里的 AUTO_INCREMENT)
-            table-prefix: t_ # 表名前缀，配置后实体类可以省略 "t_"，比如 Shape 对应 t_shape 表
-            logic-delete-field: deleted # (可选) 逻辑删除字段
-    configuration:
-        map-underscore-to-camel-case: true # 开启驼峰命名自动映射 (如 shape_code -> shapeCode)
-        log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 在控制台打印生成的 SQL 语句，方便调试
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.stonebridge.quotesystem.**.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    # 生产环境建议注释掉 SQL 打印。
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: assign_uuid
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+security:
+  auth-enabled: true
+  jwt:
+    secret: "${JWT_SECRET:QuoteSystemJwtSecretKeyQuoteSystemJwtSecretKey2026QuoteSystemJwtSecretKey}"
+    issuer: "quote-system"
+    header-name: "Authorization"
+    token-prefix: "Bearer "
+    access-token-expire-seconds: 7200
+    blacklist-key-prefix: "security:jwt:blacklist:"
+  authorization-cache:
+    key-prefix: "security:authorization:user:"
+    ttl-seconds: 600
