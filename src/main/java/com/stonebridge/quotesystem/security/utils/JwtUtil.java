@@ -51,6 +51,14 @@ public class JwtUtil {
         return parseClaims(token).getSubject();
     }
 
+    public String getUserId(String token) {
+        return parseClaims(token).get("userId", String.class);
+    }
+
+    public String getJwtId(String token) {
+        return parseClaims(token).getId();
+    }
+
     public Date getExpiration(String token) {
         return parseClaims(token).getExpiration();
     }

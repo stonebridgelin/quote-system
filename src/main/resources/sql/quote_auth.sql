@@ -1,3 +1,6 @@
+-- 当前项目实际使用的 quote_auth 建表脚本。
+-- 仅保留与 Java 实体和 Mapper 对应的用户、角色、权限及两张关联表。
+
 -- quote_auth.sys_permissions 定义
 
 CREATE TABLE `sys_permissions` (

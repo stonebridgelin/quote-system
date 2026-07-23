@@ -2,6 +2,7 @@ package com.stonebridge.quotesystem.system.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.stonebridge.quotesystem.security.service.AuthorizationCacheService;
 import com.stonebridge.quotesystem.system.entity.SysRolePermission;
 import com.stonebridge.quotesystem.system.mapper.SysRolePermissionMapper;
 import com.stonebridge.quotesystem.system.service.SysRolePermissionService;
@@ -19,6 +20,11 @@ import java.util.List;
 public class SysRolePermissionServiceImpl extends ServiceImpl<SysRolePermissionMapper, SysRolePermission>
         implements SysRolePermissionService {
 
+    private final AuthorizationCacheService authorizationCacheService;
+
+    public SysRolePermissionServiceImpl(AuthorizationCacheService authorizationCacheService) {
+        this.authorizationCacheService = authorizationCacheService;
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -31,6 +37,7 @@ public class SysRolePermissionServiceImpl extends ServiceImpl<SysRolePermissionM
         baseMapper.physicalDeleteByRoleId(normalizedRoleId);
 
         if (permissionIds == null || permissionIds.isEmpty()) {
+            authorizationCacheService.evictUsersByRoleAfterCommit(normalizedRoleId);
             return;
         }
 
@@ -56,13 +63,16 @@ public class SysRolePermissionServiceImpl extends ServiceImpl<SysRolePermissionM
         if (!relations.isEmpty()) {
             baseMapper.insertBatch(relations);
         }
+        authorizationCacheService.evictUsersByRoleAfterCommit(normalizedRoleId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void removeByRoleId(String roleId) {
         if (StringUtils.hasText(roleId)) {
-            baseMapper.physicalDeleteByRoleId(roleId.trim());
+            String normalizedRoleId = roleId.trim();
+            authorizationCacheService.evictUsersByRoleAfterCommit(normalizedRoleId);
+            baseMapper.physicalDeleteByRoleId(normalizedRoleId);
         }
     }
 
@@ -70,7 +80,10 @@ public class SysRolePermissionServiceImpl extends ServiceImpl<SysRolePermissionM
     @Transactional(rollbackFor = Exception.class)
     public void removeByPermissionId(String permissionId) {
         if (StringUtils.hasText(permissionId)) {
-            baseMapper.physicalDeleteByPermissionId(permissionId.trim());
+            String normalizedPermissionId = permissionId.trim();
+            // 必须在删除角色权限关系之前收集受影响用户。
+            authorizationCacheService.evictUsersByPermissionsAfterCommit(List.of(normalizedPermissionId));
+            baseMapper.physicalDeleteByPermissionId(normalizedPermissionId);
         }
     }
 }

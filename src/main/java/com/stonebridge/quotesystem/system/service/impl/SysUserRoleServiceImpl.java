@@ -2,6 +2,7 @@ package com.stonebridge.quotesystem.system.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.stonebridge.quotesystem.security.service.AuthorizationCacheService;
 import com.stonebridge.quotesystem.system.entity.SysUserRole;
 import com.stonebridge.quotesystem.system.mapper.SysUserRoleMapper;
 import com.stonebridge.quotesystem.system.service.SysUserRoleService;
@@ -18,6 +19,12 @@ import java.util.List;
 @Service
 public class SysUserRoleServiceImpl extends ServiceImpl<SysUserRoleMapper, SysUserRole>
         implements SysUserRoleService {
+
+    private final AuthorizationCacheService authorizationCacheService;
+
+    public SysUserRoleServiceImpl(AuthorizationCacheService authorizationCacheService) {
+        this.authorizationCacheService = authorizationCacheService;
+    }
 
     @Override
     public List<String> getRoleIdsByUserId(String userId) {
@@ -46,6 +53,7 @@ public class SysUserRoleServiceImpl extends ServiceImpl<SysUserRoleMapper, SysUs
         baseMapper.physicalDeleteByUserId(normalizedUserId);
 
         if (roleIds == null || roleIds.isEmpty()) {
+            authorizationCacheService.evictUserAfterCommit(normalizedUserId);
             return;
         }
 
@@ -71,13 +79,16 @@ public class SysUserRoleServiceImpl extends ServiceImpl<SysUserRoleMapper, SysUs
         if (!relations.isEmpty()) {
             baseMapper.insertBatch(relations);
         }
+        authorizationCacheService.evictUserAfterCommit(normalizedUserId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void removeByUserId(String userId) {
         if (StringUtils.hasText(userId)) {
-            baseMapper.physicalDeleteByUserId(userId.trim());
+            String normalizedUserId = userId.trim();
+            baseMapper.physicalDeleteByUserId(normalizedUserId);
+            authorizationCacheService.evictUserAfterCommit(normalizedUserId);
         }
     }
 

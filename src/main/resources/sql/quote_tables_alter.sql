@@ -1,0 +1,17 @@
+-- 报价表结构核对结果
+-- 核对基准：
+--   1. com.stonebridge.quotesystem.business.entity.QuoteMain
+--   2. com.stonebridge.quotesystem.business.entity.QuoteDetail
+--   3. src/main/resources/sql/quote.sql
+--
+-- 结论：
+-- 当前 quote.sql 中的 t_quote_main 已包含 QuoteMain 的全部持久化字段。
+-- 当前 quote.sql 中的 t_quote_detail 已包含 QuoteDetail 的全部持久化字段。
+-- 因此没有需要执行的 ALTER TABLE ... ADD COLUMN 语句。
+--
+-- QuoteDetail 中以下 @TableField(exist = false) 字段是接口/计算使用的虚拟字段，
+-- 不应增加到 t_quote_detail：
+-- sortNo、description、price、amount、currency、setItems、
+-- cbmTotal、nwTotal、gwTotal。
+--
+-- t_quote_main.remark 仍保存在主表中，未作任何调整。

@@ -50,6 +50,18 @@ public interface SysUserRoleMapper extends BaseMapper<SysUserRole> {
             """)
     List<String> selectUserIdsByRoleId(@Param("roleId") String roleId);
 
+    @Select({
+            "<script>",
+            "SELECT DISTINCT user_id",
+            "FROM sys_user_role",
+            "WHERE is_deleted = 0 AND role_id IN",
+            "<foreach collection='roleIds' item='roleId' open='(' separator=',' close=')'>",
+            "#{roleId}",
+            "</foreach>",
+            "</script>"
+    })
+    List<String> selectUserIdsByRoleIds(@Param("roleIds") List<String> roleIds);
+
     @Delete("DELETE FROM sys_user_role WHERE user_id = #{userId}")
     int physicalDeleteByUserId(@Param("userId") String userId);
 

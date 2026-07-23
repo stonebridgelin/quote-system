@@ -2,6 +2,7 @@ package com.stonebridge.quotesystem.security.filter;
 
 import com.stonebridge.quotesystem.security.dto.LoginRequest;
 import com.stonebridge.quotesystem.security.entity.SecurityUser;
+import com.stonebridge.quotesystem.security.service.AuthorizationCacheService;
 import com.stonebridge.quotesystem.security.utils.JwtUtil;
 import com.stonebridge.quotesystem.security.utils.QuoteSecurityProperties;
 import com.stonebridge.quotesystem.security.utils.SecurityResponseWriter;
@@ -28,14 +29,17 @@ public class JwtLoginFilter extends UsernamePasswordAuthenticationFilter {
     private final JwtUtil jwtUtil;
     private final QuoteSecurityProperties properties;
     private final SysUserMapper sysUserMapper;
+    private final AuthorizationCacheService authorizationCacheService;
 
     public JwtLoginFilter(AuthenticationManager authenticationManager,
                           JwtUtil jwtUtil,
                           QuoteSecurityProperties properties,
-                          SysUserMapper sysUserMapper) {
+                          SysUserMapper sysUserMapper,
+                          AuthorizationCacheService authorizationCacheService) {
         this.jwtUtil = jwtUtil;
         this.properties = properties;
         this.sysUserMapper = sysUserMapper;
+        this.authorizationCacheService = authorizationCacheService;
         setAuthenticationManager(authenticationManager);
         setFilterProcessesUrl("/auth/login");
     }
@@ -69,6 +73,7 @@ public class JwtLoginFilter extends UsernamePasswordAuthenticationFilter {
         String accessToken = jwtUtil.generateAccessToken(securityUser);
 
         updateLoginInfo(request, securityUser);
+        authorizationCacheService.cache(securityUser);
 
         Map<String, Object> userInfo = new HashMap<>();
         SysUser user = securityUser.getSysUser();

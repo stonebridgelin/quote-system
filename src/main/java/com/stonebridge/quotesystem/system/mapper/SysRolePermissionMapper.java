@@ -41,6 +41,18 @@ public interface SysRolePermissionMapper extends BaseMapper<SysRolePermission> {
             """)
     List<String> selectPermissionIdsByRoleId(@Param("roleId") String roleId);
 
+    @Select({
+            "<script>",
+            "SELECT DISTINCT role_id",
+            "FROM sys_role_permission",
+            "WHERE is_deleted = 0 AND permission_id IN",
+            "<foreach collection='permissionIds' item='permissionId' open='(' separator=',' close=')'>",
+            "#{permissionId}",
+            "</foreach>",
+            "</script>"
+    })
+    List<String> selectRoleIdsByPermissionIds(@Param("permissionIds") List<String> permissionIds);
+
     @Delete("DELETE FROM sys_role_permission WHERE role_id = #{roleId}")
     int physicalDeleteByRoleId(@Param("roleId") String roleId);
 

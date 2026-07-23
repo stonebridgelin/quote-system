@@ -5,16 +5,16 @@ import com.stonebridge.quotesystem.security.filter.AuthenticationEntryPointImpl;
 import com.stonebridge.quotesystem.security.filter.JwtAuthenticationFilter;
 import com.stonebridge.quotesystem.security.filter.JwtLoginFilter;
 import com.stonebridge.quotesystem.security.filter.TokenLogoutHandler;
+import com.stonebridge.quotesystem.security.service.AuthorizationCacheService;
+import com.stonebridge.quotesystem.security.service.JwtTokenBlacklistService;
 import com.stonebridge.quotesystem.security.utils.JwtUtil;
 import com.stonebridge.quotesystem.security.utils.QuoteSecurityProperties;
 import com.stonebridge.quotesystem.security.utils.SecurityResponseWriter;
 import com.stonebridge.quotesystem.system.mapper.SysUserMapper;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -79,8 +79,8 @@ public class SecurityConfig {
                                                    UserDetailsService userDetailsService,
                                                    SysUserMapper sysUserMapper,
                                                    CorsConfigurationSource corsConfigurationSource,
-                                                   ObjectProvider<RedisTemplate<String, Object>> redisTemplateProvider) throws Exception {
-        RedisTemplate<String, Object> redisTemplate = redisTemplateProvider.getIfAvailable();
+                                                   AuthorizationCacheService authorizationCacheService,
+                                                   JwtTokenBlacklistService tokenBlacklistService) throws Exception {
 
         http
                 // 前后端分离项目：显式使用当前 CorsConfigurationSource，不改变既有跨域范围。
@@ -102,8 +102,10 @@ public class SecurityConfig {
             return http.build();
         }
 
-        JwtLoginFilter jwtLoginFilter = new JwtLoginFilter(authenticationManager, jwtUtil, properties, sysUserMapper);
-        JwtAuthenticationFilter jwtAuthenticationFilter = new JwtAuthenticationFilter(jwtUtil, properties, userDetailsService, redisTemplate);
+        JwtLoginFilter jwtLoginFilter = new JwtLoginFilter(
+                authenticationManager, jwtUtil, properties, sysUserMapper, authorizationCacheService);
+        JwtAuthenticationFilter jwtAuthenticationFilter = new JwtAuthenticationFilter(
+                jwtUtil, properties, authorizationCacheService, tokenBlacklistService);
 
         http.authorizeHttpRequests(auth -> auth
                         // 放行所有 CORS 预检请求，避免 OPTIONS 在 JWT 校验前被拒绝。
@@ -120,7 +122,7 @@ public class SecurityConfig {
                 )
                 .logout(logout -> logout
                         .logoutUrl("/auth/logout")
-                        .addLogoutHandler(new TokenLogoutHandler(jwtUtil, properties, redisTemplate))
+                        .addLogoutHandler(new TokenLogoutHandler(jwtUtil, properties, tokenBlacklistService))
                         .logoutSuccessHandler(jsonLogoutSuccessHandler())
                 )
                 .addFilterAt(jwtLoginFilter, UsernamePasswordAuthenticationFilter.class)
@@ -131,8 +133,11 @@ public class SecurityConfig {
 
     @Bean
     public LogoutSuccessHandler jsonLogoutSuccessHandler() {
-        return (request, response, authentication) ->
+        return (request, response, authentication) -> {
+            if (!Boolean.TRUE.equals(request.getAttribute(TokenLogoutHandler.LOGOUT_FAILURE_ATTRIBUTE))) {
                 SecurityResponseWriter.writeSuccess(response, "退出登录成功", null);
+            }
+        };
     }
 
     @Bean

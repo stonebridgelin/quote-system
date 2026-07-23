@@ -2,6 +2,7 @@ package com.stonebridge.quotesystem.system.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.stonebridge.quotesystem.security.service.AuthorizationCacheService;
 import com.stonebridge.quotesystem.security.utils.SecurityUtil;
 import com.stonebridge.quotesystem.system.entity.SysPermission;
 import com.stonebridge.quotesystem.system.entity.SysRole;
@@ -38,11 +39,14 @@ public class SysPermissionServiceImpl extends ServiceImpl<SysPermissionMapper, S
 
     private final SysRolePermissionService rolePermissionService;
     private final SysRoleMapper sysRoleMapper;
+    private final AuthorizationCacheService authorizationCacheService;
 
     public SysPermissionServiceImpl(SysRolePermissionService rolePermissionService,
-                                    SysRoleMapper sysRoleMapper) {
+                                    SysRoleMapper sysRoleMapper,
+                                    AuthorizationCacheService authorizationCacheService) {
         this.rolePermissionService = rolePermissionService;
         this.sysRoleMapper = sysRoleMapper;
+        this.authorizationCacheService = authorizationCacheService;
     }
 
     @Override
@@ -99,6 +103,7 @@ public class SysPermissionServiceImpl extends ServiceImpl<SysPermissionMapper, S
         permission.setUpdateBy(currentOperatorId());
         permission.setUpdateTime(LocalDateTime.now());
         updateById(permission);
+        authorizationCacheService.evictUsersByPermissionsAfterCommit(List.of(permissionId));
         return permission;
     }
 
@@ -137,6 +142,16 @@ public class SysPermissionServiceImpl extends ServiceImpl<SysPermissionMapper, S
 
         String operatorId = currentOperatorId();
         LocalDateTime now = LocalDateTime.now();
+        List<String> affectedPermissionIds = new ArrayList<>();
+        affectedPermissionIds.add(id);
+        if (Integer.valueOf(TYPE_PAGE).equals(permission.getPermissionType())) {
+            list(new LambdaQueryWrapper<SysPermission>()
+                    .select(SysPermission::getId)
+                    .eq(SysPermission::getParentId, id)).stream()
+                    .map(SysPermission::getId)
+                    .filter(StringUtils::hasText)
+                    .forEach(affectedPermissionIds::add);
+        }
         permission.setStatus(status);
         permission.setUpdateBy(operatorId);
         permission.setUpdateTime(now);
@@ -151,6 +166,7 @@ public class SysPermissionServiceImpl extends ServiceImpl<SysPermissionMapper, S
                     .set(SysPermission::getUpdateTime, now)
                     .update();
         }
+        authorizationCacheService.evictUsersByPermissionsAfterCommit(affectedPermissionIds);
     }
 
     @Override

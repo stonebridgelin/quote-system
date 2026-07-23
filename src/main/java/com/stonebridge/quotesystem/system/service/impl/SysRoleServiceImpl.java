@@ -3,6 +3,7 @@ package com.stonebridge.quotesystem.system.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.stonebridge.quotesystem.security.service.AuthorizationCacheService;
 import com.stonebridge.quotesystem.security.utils.SecurityUtil;
 import com.stonebridge.quotesystem.system.entity.SysRole;
 import com.stonebridge.quotesystem.system.entity.dto.AssignPermissionDto;
@@ -27,13 +28,16 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
     private final SysRolePermissionService rolePermissionService;
     private final SysUserRoleService userRoleService;
     private final SysPermissionService permissionService;
+    private final AuthorizationCacheService authorizationCacheService;
 
     public SysRoleServiceImpl(SysRolePermissionService rolePermissionService,
                               SysUserRoleService userRoleService,
-                              SysPermissionService permissionService) {
+                              SysPermissionService permissionService,
+                              AuthorizationCacheService authorizationCacheService) {
         this.rolePermissionService = rolePermissionService;
         this.userRoleService = userRoleService;
         this.permissionService = permissionService;
+        this.authorizationCacheService = authorizationCacheService;
     }
 
     @Override
@@ -108,6 +112,7 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
         if (permissionIds != null) {
             permissionService.assignPermissions(toAssignPermissionDto(roleId, permissionIds));
         }
+        authorizationCacheService.evictUsersByRoleAfterCommit(roleId);
         return role;
     }
 

@@ -3,6 +3,7 @@ package com.stonebridge.quotesystem.system.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.stonebridge.quotesystem.security.service.AuthorizationCacheService;
 import com.stonebridge.quotesystem.security.utils.SecurityUtil;
 import com.stonebridge.quotesystem.system.entity.SysRole;
 import com.stonebridge.quotesystem.system.entity.SysUser;
@@ -36,15 +37,18 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
     private final SysUserRoleService userRoleService;
     private final SysPermissionService permissionService;
     private final PasswordEncoder passwordEncoder;
+    private final AuthorizationCacheService authorizationCacheService;
 
     public SysUserServiceImpl(SysRoleMapper sysRoleMapper,
                               SysUserRoleService userRoleService,
                               SysPermissionService permissionService,
-                              PasswordEncoder passwordEncoder) {
+                              PasswordEncoder passwordEncoder,
+                              AuthorizationCacheService authorizationCacheService) {
         this.sysRoleMapper = sysRoleMapper;
         this.userRoleService = userRoleService;
         this.permissionService = permissionService;
         this.passwordEncoder = passwordEncoder;
+        this.authorizationCacheService = authorizationCacheService;
     }
 
     @Override
@@ -143,6 +147,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         if (roleIds != null) {
             userRoleService.replaceUserRoles(userId, roleIds, operatorId);
         }
+        authorizationCacheService.evictUserAfterCommit(userId);
         erasePassword(user);
         return user;
     }
@@ -181,6 +186,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         user.setUpdateBy(currentOperatorId());
         user.setUpdateTime(LocalDateTime.now());
         updateById(user);
+        authorizationCacheService.evictUserAfterCommit(user.getId());
     }
 
     @Override
@@ -196,6 +202,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         user.setUpdateBy(currentOperatorId());
         user.setUpdateTime(LocalDateTime.now());
         updateById(user);
+        authorizationCacheService.evictUserAfterCommit(user.getId());
     }
 
     @Override
