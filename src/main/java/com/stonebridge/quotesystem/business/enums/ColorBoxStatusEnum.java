@@ -13,10 +13,10 @@ public enum ColorBoxStatusEnum implements TrackStatusEnum {
     WAREHOUSE_CONFIRMED(6400, "已和仓管确认无误"),
 
     DESIGN_NOT_PROVIDED(7100, "客户确认存在但未提供设计资料"),
-    DESIGNING(7200, "客户提供了设计资料，公司正在设计"),
+    DESIGN_MATERIAL_RECEIVED(7200, "客户已提供设计资料"),
+    DESIGN_SENT_WAITING_CONFIRMATION(7250, "设计初步完成，已发客户待确认"),
     CUSTOMER_APPROVED(7300, "用户已确认"),
-    SALESMAN_SIGNED(7400, "业务员已签字确认"),
-    CHECKED_OK(7500, "检查无误");
+    SALESMAN_SIGNED(7400, "业务员已签字确认");
 
     private final Integer code;
     private final String label;

@@ -8,10 +8,10 @@ import lombok.Getter;
 public enum InnerBoxStatusEnum implements TrackStatusEnum {
 
     DESIGN_NOT_PROVIDED(5100, "客户尚未提供设计资料"),
-    DESIGNING(5200, "客户提供了设计资料，公司正在设计"),
+    DESIGN_MATERIAL_RECEIVED(5200, "客户已提供设计资料"),
+    DESIGN_SENT_WAITING_CONFIRMATION(5250, "设计初步完成，已发客户待确认"),
     CUSTOMER_APPROVED(5300, "用户已确认"),
-    SALESMAN_SIGNED(5400, "业务员已签字确认"),
-    CHECKED_OK(5500, "检查无误");
+    SALESMAN_SIGNED(5400, "业务员已签字确认");
 
     private final Integer code;
     private final String label;

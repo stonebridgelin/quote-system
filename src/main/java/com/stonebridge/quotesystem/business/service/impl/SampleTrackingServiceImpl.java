@@ -8,10 +8,9 @@ import com.stonebridge.quotesystem.business.entity.dto.SampleSaveDTO;
 import com.stonebridge.quotesystem.business.mapper.SampleImageMapper;
 import com.stonebridge.quotesystem.business.mapper.SampleTrackingMapper;
 import com.stonebridge.quotesystem.business.service.ISampleTrackingService;
+import com.stonebridge.quotesystem.exception.BusinessException;
 import com.stonebridge.quotesystem.security.utils.SecurityUtil;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +22,10 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class SampleTrackingServiceImpl implements ISampleTrackingService {
+
+    private static final String STATUS_MAKING = "MAKING";
+    private static final String STATUS_SHIPPED = "SHIPPED";
+    private static final String STATUS_ENDED = "ENDED";
 
     private final SampleTrackingMapper trackingMapper;
 
@@ -45,20 +48,17 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
         List<SampleTracking> list = trackingMapper.selectList(wrapper);
         LocalDate today = LocalDate.now();
 
-        // 原有的核心排序算法保持不变
         for (SampleTracking item : list) {
-            boolean isOverdue = item.getPlanDate().isBefore(today);
+            boolean isOverdue = item.getPlanDate() != null && item.getPlanDate().isBefore(today);
             item.setIsOverdue(isOverdue);
 
-            if ("MAKING".equals(item.getStatus())) {
-                if (!isOverdue) {
-                    item.setSortGroup(1);
-                } else {
-                    item.setSortGroup(2);
-                }
-            } else if ("SHIPPED".equals(item.getStatus())) {
+            if (STATUS_MAKING.equals(item.getStatus())) {
+                item.setSortGroup(isOverdue ? 2 : 1);
+            } else if (isCompletedStatus(item.getStatus())) {
+                // SHIPPED 是当前完成状态，ENDED 仅兼容历史数据，二者统一排序。
                 item.setSortGroup(3);
             } else {
+                // 防御历史异常状态，正常保存流程不会再产生其他状态。
                 item.setSortGroup(4);
             }
         }
@@ -67,19 +67,16 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
             if (!a.getSortGroup().equals(b.getSortGroup())) {
                 return a.getSortGroup().compareTo(b.getSortGroup());
             }
-            if (a.getSortGroup() == 1) {
-                return a.getCreateTime().compareTo(b.getCreateTime());
-            } else if (a.getSortGroup() == 2) {
-                return a.getPlanDate().compareTo(b.getPlanDate());
-            } else if (a.getSortGroup() == 4) {
-                if (a.getEndTime() == null) return 1;
-                if (b.getEndTime() == null) return -1;
-                return b.getEndTime().compareTo(a.getEndTime());
+            if (Integer.valueOf(1).equals(a.getSortGroup())) {
+                return compareDateTimeAscending(a.getCreateTime(), b.getCreateTime());
+            } else if (Integer.valueOf(2).equals(a.getSortGroup())) {
+                return compareDateAscending(a.getPlanDate(), b.getPlanDate());
+            } else if (Integer.valueOf(3).equals(a.getSortGroup())) {
+                return compareDateTimeDescending(completedSortTime(a), completedSortTime(b));
             }
-            return b.getCreateTime().compareTo(a.getCreateTime());
+            return compareDateTimeDescending(a.getCreateTime(), b.getCreateTime());
         });
 
-        // ★ 新增：内存分页逻辑
         int total = list.size();
         int fromIndex = (current - 1) * size;
         int toIndex = Math.min(fromIndex + size, total);
@@ -91,7 +88,6 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
             pageList = list.subList(fromIndex, toIndex);
         }
 
-        // 封装为 Page 对象返回
         Page<SampleTracking> page = new Page<>(current, size, total);
         page.setRecords(pageList);
         return page;
@@ -101,39 +97,35 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
     @Transactional(rollbackFor = Exception.class)
     public void saveOrUpdate(SampleSaveDTO dto) {
         String currentUser = SecurityUtil.getCurrentUserId();
+        LocalDateTime now = LocalDateTime.now();
 
         SampleTracking tracking;
         if (dto.getId() == null) {
-            // 新增
             tracking = new SampleTracking();
             tracking.setCustomerInfo(dto.getCustomerInfo());
             tracking.setPlanDate(dto.getPlanDate());
             tracking.setRemarks(dto.getRemarks());
-            tracking.setStatus("MAKING");
+            // 新建样品单固定从制作中开始，不接受前端指定完成状态。
+            tracking.setStatus(STATUS_MAKING);
             tracking.setCreator(currentUser);
-            tracking.setCreateTime(LocalDateTime.now());
-            // ★ 新增：新建时同步写入更新时间
-            tracking.setUpdateTime(LocalDateTime.now());
+            tracking.setCreateTime(now);
+            tracking.setUpdateTime(now);
+            tracking.setEndTime(null);
             trackingMapper.insert(tracking);
         } else {
-            // 更新
             tracking = trackingMapper.selectById(dto.getId());
             if (tracking == null) {
-                throw new RuntimeException("数据不存在");
+                throw new BusinessException(404, "数据不存在");
             }
-            if (dto.getRemarks() != null) tracking.setRemarks(dto.getRemarks());
-            if (dto.getStatus() != null) {
-                tracking.setStatus(dto.getStatus());
-                if ("SHIPPED".equals(dto.getStatus())) tracking.setTrackingNo(dto.getTrackingNo());
-                if ("ENDED".equals(dto.getStatus()) && tracking.getEndTime() == null) {
-                    tracking.setEndTime(LocalDateTime.now());
-                }
+            if (dto.getRemarks() != null) {
+                tracking.setRemarks(dto.getRemarks());
             }
-            // ★ 新增：只要发生修改，就刷新更新时间
-            tracking.setUpdateTime(LocalDateTime.now());
+            applyStatusUpdate(tracking, dto, now);
+            tracking.setUpdateTime(now);
             trackingMapper.updateById(tracking);
         }
 
+        // 主表与图片仍在同一个事务中，任一图片保存失败都会整体回滚。
         imageMapper.delete(new QueryWrapper<SampleImage>().eq("sample_id", tracking.getId()));
 
         if (dto.getImages() != null && !dto.getImages().isEmpty()) {
@@ -171,5 +163,143 @@ public class SampleTrackingServiceImpl implements ISampleTrackingService {
     @Override
     public void removeById(Long id) {
         trackingMapper.deleteById(id);
+    }
+
+    private void applyStatusUpdate(SampleTracking tracking, SampleSaveDTO dto, LocalDateTime now) {
+        String requestedStatus = normalizeRequestedStatus(dto.getStatus());
+        String currentStatus = tracking.getStatus();
+
+        if (requestedStatus == null) {
+            updateCompletedTrackingNoIfProvided(tracking, dto.getTrackingNo());
+            return;
+        }
+
+        validateStatus(requestedStatus);
+        if (isCompletedStatus(currentStatus)) {
+            updateCompletedRecord(tracking, requestedStatus, dto.getTrackingNo(), now);
+            return;
+        }
+
+        if (STATUS_MAKING.equals(requestedStatus)) {
+            tracking.setStatus(STATUS_MAKING);
+            return;
+        }
+
+        if (STATUS_SHIPPED.equals(requestedStatus)) {
+            tracking.setTrackingNo(resolveRequiredTrackingNo(dto.getTrackingNo(), tracking.getTrackingNo()));
+            tracking.setStatus(STATUS_SHIPPED);
+            setCompletionTimeOnce(tracking, now);
+            return;
+        }
+
+        // ENDED 仅用于兼容旧客户端，新的正常流程应提交 SHIPPED。
+        tracking.setStatus(STATUS_ENDED);
+        updateTrackingNoIfProvided(tracking, dto.getTrackingNo());
+        setCompletionTimeOnce(tracking, now);
+    }
+
+    private void updateCompletedRecord(SampleTracking tracking, String requestedStatus,
+                                       String requestedTrackingNo, LocalDateTime now) {
+        if (STATUS_MAKING.equals(requestedStatus)) {
+            throw new BusinessException(400, "已完成的样品单不能退回制作中");
+        }
+
+        // 已完成记录保持原有完成状态，避免 SHIPPED 与历史 ENDED 互相转换。
+        if (STATUS_SHIPPED.equals(requestedStatus)) {
+            tracking.setTrackingNo(resolveRequiredTrackingNo(requestedTrackingNo, tracking.getTrackingNo()));
+        } else {
+            updateTrackingNoIfProvided(tracking, requestedTrackingNo);
+        }
+        setCompletionTimeOnce(tracking, now);
+    }
+
+    private void updateCompletedTrackingNoIfProvided(SampleTracking tracking, String requestedTrackingNo) {
+        if (isCompletedStatus(tracking.getStatus())) {
+            updateTrackingNoIfProvided(tracking, requestedTrackingNo);
+        }
+    }
+
+    private void updateTrackingNoIfProvided(SampleTracking tracking, String requestedTrackingNo) {
+        if (requestedTrackingNo == null) {
+            return;
+        }
+        String normalizedTrackingNo = requestedTrackingNo.trim();
+        if (normalizedTrackingNo.isEmpty()) {
+            throw new BusinessException(400, "快递单号不能为空");
+        }
+        tracking.setTrackingNo(normalizedTrackingNo);
+    }
+
+    private String resolveRequiredTrackingNo(String requestedTrackingNo, String existingTrackingNo) {
+        String effectiveTrackingNo = requestedTrackingNo != null ? requestedTrackingNo : existingTrackingNo;
+        if (effectiveTrackingNo == null || effectiveTrackingNo.trim().isEmpty()) {
+            throw new BusinessException(400, "快递单号不能为空");
+        }
+        return effectiveTrackingNo.trim();
+    }
+
+    private void setCompletionTimeOnce(SampleTracking tracking, LocalDateTime now) {
+        if (tracking.getEndTime() == null) {
+            tracking.setEndTime(now);
+        }
+    }
+
+    private String normalizeRequestedStatus(String status) {
+        if (status == null) {
+            return null;
+        }
+        return status.trim();
+    }
+
+    private void validateStatus(String status) {
+        if (!STATUS_MAKING.equals(status)
+                && !STATUS_SHIPPED.equals(status)
+                && !STATUS_ENDED.equals(status)) {
+            throw new BusinessException(400, "样品状态不合法");
+        }
+    }
+
+    private static boolean isCompletedStatus(String status) {
+        return STATUS_SHIPPED.equals(status) || STATUS_ENDED.equals(status);
+    }
+
+    private static LocalDateTime completedSortTime(SampleTracking tracking) {
+        if (tracking.getEndTime() != null) {
+            return tracking.getEndTime();
+        }
+        if (tracking.getUpdateTime() != null) {
+            return tracking.getUpdateTime();
+        }
+        return tracking.getCreateTime();
+    }
+
+    private static int compareDateAscending(LocalDate left, LocalDate right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        return left.compareTo(right);
+    }
+
+    private static int compareDateTimeAscending(LocalDateTime left, LocalDateTime right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        return left.compareTo(right);
+    }
+
+    private static int compareDateTimeDescending(LocalDateTime left, LocalDateTime right) {
+        return compareDateTimeAscending(right, left);
     }
 }

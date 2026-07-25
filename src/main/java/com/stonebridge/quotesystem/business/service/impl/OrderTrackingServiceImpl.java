@@ -21,6 +21,8 @@ import com.stonebridge.quotesystem.business.mapper.OrderTrackingLogMapper;
 import com.stonebridge.quotesystem.business.mapper.OrderTrackingMapper;
 import com.stonebridge.quotesystem.business.service.IOrderTrackingService;
 import com.stonebridge.quotesystem.business.service.IOrderTrackingOptionTranslateService;
+import com.stonebridge.quotesystem.system.entity.SysUser;
+import com.stonebridge.quotesystem.system.service.SysUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import com.stonebridge.quotesystem.security.utils.SecurityUtil;
@@ -29,10 +31,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -43,6 +47,7 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
     private final OrderTrackingLogMapper orderTrackingLogMapper;
     private final OrderTrackingLogImageMapper orderTrackingLogImageMapper;
     private final IOrderTrackingOptionTranslateService optionTranslateService;
+    private final SysUserService sysUserService;
 
     @Override
     public Page<OrderTrackingListVO> page(OrderTrackingPageQueryDTO queryDTO) {
@@ -121,12 +126,17 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
             wrapper.eq("is_finished", queryDTO.getIsFinished());
         }
 
-        wrapper.orderByAsc("is_finished").orderByAsc("planned_delivery_date").orderByDesc("create_time");
+        // 必须在数据库分页前按最后更新时间全局倒序，id 用作相同时间下的稳定次序。
+        wrapper.orderByDesc("update_time").orderByDesc("id");
 
         Page<OrderTracking> rawPage = orderTrackingMapper.selectPage(entityPage, wrapper);
 
         Page<OrderTrackingListVO> resultPage = new Page<>(rawPage.getCurrent(), rawPage.getSize(), rawPage.getTotal());
-        resultPage.setRecords(rawPage.getRecords().stream().map(optionTranslateService::toListVO).collect(Collectors.toList()));
+        List<OrderTrackingListVO> records = rawPage.getRecords().stream()
+                .map(optionTranslateService::toListVO)
+                .collect(Collectors.toList());
+        fillOperatorDisplayNames(records);
+        resultPage.setRecords(records);
 
         return resultPage;
     }
@@ -453,9 +463,10 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
         vo.setOrder(order);
 
         Map<String, List<OrderTrackingLogVO>> recentLogs = new LinkedHashMap<>();
-        for (TrackModuleEnum moduleEnum : TrackModuleEnum.values()) {
-            recentLogs.put(moduleEnum.getCode(), getRecentModuleLogs(id, moduleEnum.getCode(), 3));
-        }
+        // 详情首屏只携带整单日志，其他模块日志由 /order-tracking/logs 按需查询。
+        recentLogs.put(
+                TrackModuleEnum.ORDER.getCode(),
+                getRecentModuleLogs(id, TrackModuleEnum.ORDER.getCode(), 3));
 
         vo.setRecentLogs(recentLogs);
         return vo;
@@ -476,9 +487,19 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
         // 数据权限校验：不能通过日志接口读取他人订单。
         getOrderOrThrow(orderId);
 
-        List<OrderTrackingLog> logs = orderTrackingLogMapper.selectList(new QueryWrapper<OrderTrackingLog>().eq("order_id", orderId).eq("module_type", moduleType).orderByDesc("sort_no").orderByDesc("create_time").orderByDesc("id"));
+        List<OrderTrackingLog> logs = orderTrackingLogMapper.selectList(
+                new QueryWrapper<OrderTrackingLog>()
+                        .eq("order_id", orderId)
+                        .eq("module_type", moduleType)
+                        .orderByAsc("sort_no")
+                        .orderByAsc("create_time")
+                        .orderByAsc("id"));
 
-        return logs.stream().map(log -> toLogVO(log, true)).collect(Collectors.toList());
+        List<OrderTrackingLogVO> result = logs.stream()
+                .map(log -> toLogVO(log, true))
+                .collect(Collectors.toList());
+        fillLogCreatorDisplayNames(result);
+        return result;
     }
 
     @Override
@@ -835,7 +856,76 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
     private List<OrderTrackingLogVO> getRecentModuleLogs(String orderId, String moduleType, int limit) {
         List<OrderTrackingLog> logs = orderTrackingLogMapper.selectList(new QueryWrapper<OrderTrackingLog>().eq("order_id", orderId).eq("module_type", moduleType).orderByDesc("sort_no").orderByDesc("create_time").orderByDesc("id").last("LIMIT " + limit));
 
-        return logs.stream().map(log -> toLogVO(log, false)).collect(Collectors.toList());
+        List<OrderTrackingLogVO> result = logs.stream()
+                .map(log -> toLogVO(log, false))
+                .collect(Collectors.toList());
+        fillLogCreatorDisplayNames(result);
+        return result;
+    }
+
+    private void fillOperatorDisplayNames(List<OrderTrackingListVO> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+
+        Set<String> userIds = new LinkedHashSet<>();
+        for (OrderTrackingListVO record : records) {
+            addUserId(userIds, record.getCreateBy());
+            addUserId(userIds, record.getUpdateBy());
+        }
+        if (userIds.isEmpty()) {
+            return;
+        }
+
+        Map<String, String> displayNameMap = loadUsernameMap(userIds);
+
+        for (OrderTrackingListVO record : records) {
+            record.setCreateBy(displayNameMap.getOrDefault(record.getCreateBy(), record.getCreateBy()));
+            record.setUpdateBy(displayNameMap.getOrDefault(record.getUpdateBy(), record.getUpdateBy()));
+        }
+    }
+
+    private void fillLogCreatorDisplayNames(List<OrderTrackingLogVO> logs) {
+        if (logs == null || logs.isEmpty()) {
+            return;
+        }
+
+        Set<String> userIds = new LinkedHashSet<>();
+        for (OrderTrackingLogVO log : logs) {
+            addUserId(userIds, log.getCreateBy());
+        }
+        if (userIds.isEmpty()) {
+            return;
+        }
+
+        Map<String, String> displayNameMap = loadUsernameMap(userIds);
+        for (OrderTrackingLogVO log : logs) {
+            log.setCreateBy(displayNameMap.getOrDefault(log.getCreateBy(), log.getCreateBy()));
+        }
+    }
+
+    private Map<String, String> loadUsernameMap(Set<String> userIds) {
+        List<SysUser> users = sysUserService.listByIds(userIds);
+        Map<String, String> displayNameMap = new HashMap<>();
+        for (SysUser user : users) {
+            if (user != null && hasText(user.getId())) {
+                displayNameMap.put(user.getId(), resolveUserDisplayName(user));
+            }
+        }
+        return displayNameMap;
+    }
+
+    private void addUserId(Set<String> userIds, String userId) {
+        if (hasText(userId)) {
+            userIds.add(userId);
+        }
+    }
+
+    private String resolveUserDisplayName(SysUser user) {
+        if (hasText(user.getUsername())) {
+            return user.getUsername().trim();
+        }
+        return user.getId();
     }
 
     private OrderTrackingLogVO toLogVO(OrderTrackingLog log, boolean includeImages) {

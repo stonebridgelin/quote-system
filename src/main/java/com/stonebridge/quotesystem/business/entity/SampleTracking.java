@@ -11,7 +11,8 @@ public class SampleTracking {
     private Long id;
     private String customerInfo;
     private LocalDate planDate;
-    private String status; // MAKING, SHIPPED, ENDED
+    // MAKING：制作中；SHIPPED：已寄出且已完成；ENDED：仅兼容历史完成数据
+    private String status;
     private String trackingNo;
     private String remarks;
     private String creator;

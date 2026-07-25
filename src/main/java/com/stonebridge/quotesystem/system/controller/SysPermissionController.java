@@ -19,9 +19,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 系统权限控制器。
@@ -131,10 +134,40 @@ public class SysPermissionController {
     @PreAuthorize("hasAnyAuthority('system:role:query','system:role:assign-permission','system:role:assignMenu')")
     @GetMapping("/to-assign/{roleId}")
     public Result<Map<String, Object>> toAssign(@PathVariable String roleId) {
+        List<SysPermission> permissionTree = sysPermissionService.findPermissionTree();
+        List<String> queriedPermissionIds = sysRolePermissionMapper.selectPermissionIdsByRoleId(roleId);
+        List<String> assignedPermissionIds = queriedPermissionIds == null ? List.of() : queriedPermissionIds;
+        Set<String> assignedIdSet = new HashSet<>(assignedPermissionIds);
+        List<String> checkedPermissionIds = new ArrayList<>();
+
+        markSelectedNodes(permissionTree, assignedIdSet, checkedPermissionIds);
+
         Map<String, Object> data = new HashMap<>();
-        data.put("permissionTree", sysPermissionService.findPermissionTree());
-        data.put("assignedPermissionIds", sysRolePermissionMapper.selectPermissionIdsByRoleId(roleId));
+        data.put("permissionTree", permissionTree);
+        // 保留原字段，避免影响已有调用方。
+        data.put("assignedPermissionIds", assignedPermissionIds);
+        // Element Plus 非严格树应使用叶子节点回显，父节点由子节点自动形成全选/半选状态。
+        data.put("checkedPermissionIds", checkedPermissionIds);
         return Result.success(data);
+    }
+
+    private void markSelectedNodes(List<SysPermission> nodes,
+                                   Set<String> assignedPermissionIds,
+                                   List<String> checkedPermissionIds) {
+        if (nodes == null || nodes.isEmpty()) {
+            return;
+        }
+        for (SysPermission node : nodes) {
+            boolean selected = node.getId() != null && assignedPermissionIds.contains(node.getId());
+            node.setSelected(selected);
+
+            List<SysPermission> children = node.getChildren();
+            boolean leaf = children == null || children.isEmpty();
+            if (selected && leaf) {
+                checkedPermissionIds.add(node.getId());
+            }
+            markSelectedNodes(children, assignedPermissionIds, checkedPermissionIds);
+        }
     }
 
     /**

@@ -142,4 +142,11 @@ public class SysPermission implements Serializable {
     /** 子权限，用于树形展示，不映射数据库字段。 */
     @TableField(exist = false)
     private List<SysPermission> children;
+
+    /**
+     * 角色授权准备接口使用：当前角色是否直接拥有该权限。
+     * 仅用于接口展示，不映射数据库字段。
+     */
+    @TableField(exist = false)
+    private Boolean selected;
 }

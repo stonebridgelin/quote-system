@@ -16,10 +16,10 @@ public class OrderTrackingDetailVO {
 
     /**
      * 主弹窗展示用：
-     * 每个模块最近几条日志摘要。
+     * 仅返回整单日志最近几条摘要。
      *
      * key:
-     * STICKER、PRINTING、INNER_BOX、COLOR_BOX、CARTON
+     * ORDER
      */
     private Map<String, List<OrderTrackingLogVO>> recentLogs;
 }
