@@ -27,10 +27,10 @@ import java.util.stream.Collectors;
  *
  * 这是本次结构优化的核心：
  * 1. 列表页展示字段由后端统一翻译，不再依赖前端 optionMap 兜底；
- * 2. STATUS 支持两级查找：先按 parentValue 精确匹配，再按模块全量状态兜底；
+ * 2. STATUS 严格按照模块和 parentValue 精确匹配；
  * 3. 所有配置来自 t_order_tracking_option；
  * 4. 使用本地内存缓存，避免列表页频繁查询配置表；
- * 5. 已停用但未删除的配置仍可翻译历史数据，但不会被视为当前有效状态。
+ * 5. 只加载当前启用的基础数据，不保留历史状态兼容分支。
  */
 @Service
 @RequiredArgsConstructor
@@ -145,13 +145,7 @@ public class OrderTrackingOptionTranslateServiceImpl implements IOrderTrackingOp
         if (OPTION_TYPE_STATUS.equals(normalizedOptionType)) {
             OptionItem exact = cache.statusParentMap.get(statusParentKey(normalizedModule, parentValue, value));
             if (exact != null) {
-                fillMatched(vo, exact, "PARENT", exact.enabled);
-                return vo;
-            }
-
-            OptionItem any = cache.statusAnyMap.get(statusAnyKey(normalizedModule, value));
-            if (any != null) {
-                fillMatched(vo, any, "ALL", false);
+                fillMatched(vo, exact, "PARENT", true);
                 return vo;
             }
 
@@ -176,13 +170,32 @@ public class OrderTrackingOptionTranslateServiceImpl implements IOrderTrackingOp
     }
 
     @Override
+    public boolean isValidType(String moduleType, Integer typeValue) {
+        if (typeValue == null) {
+            return false;
+        }
+        return getCache().typeMap.containsKey(
+                typeKey(normalize(moduleType), typeValue));
+    }
+
+    @Override
+    public Integer getFirstTypeValue(String moduleType) {
+        List<OptionItem> list =
+                getCache().typeListByModule.get(normalize(moduleType));
+        if (list == null || list.isEmpty()) {
+            return null;
+        }
+        return list.get(0).value;
+    }
+
+    @Override
     public boolean isValidStatusForParent(String moduleType, Integer parentValue, Integer statusValue) {
         if (statusValue == null) {
             return false;
         }
         OptionItem item = getCache().statusParentMap.get(
                 statusParentKey(normalize(moduleType), parentValue, statusValue));
-        return item != null && item.enabled;
+        return item != null;
     }
 
     @Override
@@ -219,6 +232,7 @@ public class OrderTrackingOptionTranslateServiceImpl implements IOrderTrackingOp
         List<OrderTrackingOption> list = orderTrackingOptionMapper.selectList(
                 new QueryWrapper<OrderTrackingOption>()
                         .eq("is_deleted", 0)
+                        .eq("is_enabled", 1)
                         .orderByAsc("module_type")
                         .orderByAsc("option_type")
                         .orderByAsc("parent_value")
@@ -243,32 +257,30 @@ public class OrderTrackingOptionTranslateServiceImpl implements IOrderTrackingOp
             item.label = option.getOptionLabel();
             item.tagType = defaultTag(option.getTagType());
             item.sortNo = option.getSortNo() == null ? 0 : option.getSortNo();
-            item.enabled = Integer.valueOf(1).equals(option.getIsEnabled());
 
             if (OPTION_TYPE_TYPE.equals(optionType)) {
                 cache.typeMap.put(typeKey(moduleType, item.value), item);
+                cache.typeListByModule
+                        .computeIfAbsent(moduleType, key -> new ArrayList<>())
+                        .add(item);
             }
 
             if (OPTION_TYPE_STATUS.equals(optionType)) {
                 if (item.parentValue != null) {
                     cache.statusParentMap.put(statusParentKey(moduleType, item.parentValue, item.value), item);
-                    if (item.enabled) {
-                        cache.statusListByParent.computeIfAbsent(
-                                statusListKey(moduleType, item.parentValue), k -> new ArrayList<>()).add(item);
-                    }
+                    cache.statusListByParent.computeIfAbsent(
+                            statusListKey(moduleType, item.parentValue), k -> new ArrayList<>()).add(item);
                 } else {
                     cache.statusParentMap.put(statusParentKey(moduleType, null, item.value), item);
-                    if (item.enabled) {
-                        cache.statusListByParent.computeIfAbsent(
-                                statusListKey(moduleType, null), k -> new ArrayList<>()).add(item);
-                    }
+                    cache.statusListByParent.computeIfAbsent(
+                            statusListKey(moduleType, null), k -> new ArrayList<>()).add(item);
                 }
-
-                // 模块级兜底映射。若同一模块内状态码重复，保留排序靠前的第一条。
-                cache.statusAnyMap.putIfAbsent(statusAnyKey(moduleType, item.value), item);
             }
         }
 
+        for (List<OptionItem> items : cache.typeListByModule.values()) {
+            items.sort((a, b) -> Integer.compare(a.sortNo, b.sortNo));
+        }
         for (List<OptionItem> items : cache.statusListByParent.values()) {
             items.sort((a, b) -> Integer.compare(a.sortNo, b.sortNo));
         }
@@ -353,18 +365,14 @@ public class OrderTrackingOptionTranslateServiceImpl implements IOrderTrackingOp
         return moduleType + "|STATUS|" + parentValue + "|" + value;
     }
 
-    private static String statusAnyKey(String moduleType, Integer value) {
-        return moduleType + "|STATUS|ALL|" + value;
-    }
-
     private static String statusListKey(String moduleType, Integer parentValue) {
         return moduleType + "|STATUS_LIST|" + parentValue;
     }
 
     private static class OptionCache {
         private final Map<String, OptionItem> typeMap = new HashMap<>();
+        private final Map<String, List<OptionItem>> typeListByModule = new LinkedHashMap<>();
         private final Map<String, OptionItem> statusParentMap = new HashMap<>();
-        private final Map<String, OptionItem> statusAnyMap = new HashMap<>();
         private final Map<String, List<OptionItem>> statusListByParent = new LinkedHashMap<>();
     }
 
@@ -376,6 +384,5 @@ public class OrderTrackingOptionTranslateServiceImpl implements IOrderTrackingOp
         private String label;
         private String tagType;
         private Integer sortNo;
-        private boolean enabled;
     }
 }

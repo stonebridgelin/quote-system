@@ -25,6 +25,16 @@ public interface IOrderTrackingOptionTranslateService {
     List<OrderTrackingOptionTranslateVO> translateBatch(List<OrderTrackingOptionTranslateDTO> requests);
 
     /**
+     * 判断类型值是否属于某模块。
+     */
+    boolean isValidType(String moduleType, Integer typeValue);
+
+    /**
+     * 读取某模块排序最靠前的类型值。
+     */
+    Integer getFirstTypeValue(String moduleType);
+
+    /**
      * 判断某状态是否属于某模块某类型。
      */
     boolean isValidStatusForParent(String moduleType, Integer parentValue, Integer statusValue);

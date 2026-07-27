@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.stonebridge.quotesystem.business.entity.OrderTracking;
 import com.stonebridge.quotesystem.business.entity.OrderTrackingLog;
 import com.stonebridge.quotesystem.business.entity.OrderTrackingLogImage;
+import com.stonebridge.quotesystem.business.entity.dto.OrderTrackingLogImageDTO;
 import com.stonebridge.quotesystem.business.entity.dto.OrderTrackingModuleUpdateDTO;
 import com.stonebridge.quotesystem.business.entity.dto.OrderTrackingPageQueryDTO;
 import com.stonebridge.quotesystem.business.entity.dto.OrderTrackingSaveDTO;
@@ -40,6 +41,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -77,6 +81,16 @@ class OrderTrackingServiceImplTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
                         principal, null, principal.getAuthorities()));
+
+        // 订单追踪类型与默认状态全部来自数据库配置服务。
+        lenient().when(optionTranslateService.isValidType(
+                anyString(), anyInt())).thenReturn(true);
+        lenient().when(optionTranslateService.getFirstTypeValue(
+                anyString())).thenReturn(0);
+        lenient().when(optionTranslateService.getFirstStatusValue(
+                "CARTON", null)).thenReturn(1100);
+        lenient().when(optionTranslateService.isValidStatusForParent(
+                "CARTON", null, 1100)).thenReturn(true);
     }
 
     @AfterEach
@@ -199,6 +213,112 @@ class OrderTrackingServiceImplTest {
         assertLastUpdatedOrderHasTimestamp();
 
         verify(orderTrackingMapper, times(3)).updateById(any(OrderTracking.class));
+    }
+
+    @Test
+    void shouldUpdateWaitingModuleAndAttachImagesToOneLog() {
+        OrderTracking oldOrder = ownedOrder();
+        oldOrder.setSticker(30);
+        oldOrder.setStickerStatus(3100);
+        oldOrder.setIsStickerWaiting(0);
+        when(orderTrackingMapper.selectById("order-1")).thenReturn(oldOrder);
+        when(optionTranslateService.getFirstStatusValue("STICKER", 30))
+                .thenReturn(3100);
+        when(optionTranslateService.isValidStatusForParent(
+                "STICKER", 30, 3200)).thenReturn(true);
+        when(orderTrackingLogMapper.selectOne(any(QueryWrapper.class)))
+                .thenReturn(null);
+        when(orderTrackingLogMapper.insert(any(OrderTrackingLog.class)))
+                .thenAnswer(invocation -> {
+                    OrderTrackingLog log = invocation.getArgument(0);
+                    log.setId("waiting-log-1");
+                    return 1;
+                });
+
+        OrderTrackingLogImageDTO image = new OrderTrackingLogImageDTO();
+        image.setImageUrl("https://example.com/design.jpg");
+        image.setImageKey("order/design.jpg");
+        image.setOriginalName("设计稿.jpg");
+
+        OrderTrackingWaitingDTO dto = new OrderTrackingWaitingDTO();
+        dto.setOrderId("order-1");
+        dto.setModuleType("STICKER");
+        dto.setWaiting(1);
+        dto.setTypeValue(30);
+        dto.setStatusValue(3200);
+        dto.setTextValue("");
+        dto.setRemarkContent("已经联系客户，等待确认设计稿");
+        dto.setImages(List.of(image));
+
+        service.updateModuleWaiting(dto);
+
+        ArgumentCaptor<OrderTracking> orderCaptor =
+                ArgumentCaptor.forClass(OrderTracking.class);
+        verify(orderTrackingMapper, times(1)).updateById(orderCaptor.capture());
+        OrderTracking updatedOrder = orderCaptor.getValue();
+        assertEquals(30, updatedOrder.getSticker());
+        assertEquals(3200, updatedOrder.getStickerStatus());
+        assertEquals(1, updatedOrder.getIsStickerWaiting());
+        assertEquals("user-id", updatedOrder.getUpdateBy());
+        assertNotNull(updatedOrder.getUpdateTime());
+
+        ArgumentCaptor<OrderTrackingLog> logCaptor =
+                ArgumentCaptor.forClass(OrderTrackingLog.class);
+        verify(orderTrackingLogMapper, times(1)).insert(logCaptor.capture());
+        OrderTrackingLog log = logCaptor.getValue();
+        assertEquals("STICKER", log.getModuleType());
+        assertEquals(30, log.getBeforeType());
+        assertEquals(30, log.getAfterType());
+        assertEquals(3100, log.getBeforeStatus());
+        assertEquals(3200, log.getAfterStatus());
+        assertEquals(
+                "开启等待回复提醒：已经联系客户，等待确认设计稿",
+                log.getRemarkContent());
+
+        ArgumentCaptor<OrderTrackingLogImage> imageCaptor =
+                ArgumentCaptor.forClass(OrderTrackingLogImage.class);
+        verify(orderTrackingLogImageMapper, times(1))
+                .insert(imageCaptor.capture());
+        OrderTrackingLogImage savedImage = imageCaptor.getValue();
+        assertEquals("waiting-log-1", savedImage.getLogId());
+        assertEquals("order-1", savedImage.getOrderId());
+        assertEquals("STICKER", savedImage.getModuleType());
+        assertEquals("https://example.com/design.jpg", savedImage.getImageUrl());
+        assertEquals("order/design.jpg", savedImage.getImageKey());
+        assertEquals("设计稿.jpg", savedImage.getOriginalName());
+    }
+
+    @Test
+    void shouldPreserveModuleFieldsAndUseDisableWaitingRemark() {
+        OrderTracking oldOrder = ownedOrder();
+        oldOrder.setSticker(30);
+        oldOrder.setStickerStatus(3200);
+        oldOrder.setIsStickerWaiting(1);
+        when(orderTrackingMapper.selectById("order-1")).thenReturn(oldOrder);
+        when(orderTrackingLogMapper.selectOne(any(QueryWrapper.class)))
+                .thenReturn(null);
+
+        OrderTrackingWaitingDTO dto = new OrderTrackingWaitingDTO();
+        dto.setOrderId("order-1");
+        dto.setModuleType("STICKER");
+        dto.setWaiting(0);
+        dto.setRemarkContent("客户已经回复并确认设计稿");
+
+        service.updateModuleWaiting(dto);
+
+        ArgumentCaptor<OrderTracking> orderCaptor =
+                ArgumentCaptor.forClass(OrderTracking.class);
+        verify(orderTrackingMapper).updateById(orderCaptor.capture());
+        assertEquals(30, orderCaptor.getValue().getSticker());
+        assertEquals(3200, orderCaptor.getValue().getStickerStatus());
+        assertEquals(0, orderCaptor.getValue().getIsStickerWaiting());
+
+        ArgumentCaptor<OrderTrackingLog> logCaptor =
+                ArgumentCaptor.forClass(OrderTrackingLog.class);
+        verify(orderTrackingLogMapper, times(1)).insert(logCaptor.capture());
+        assertEquals(
+                "解除等待回复提醒：客户已经回复并确认设计稿",
+                logCaptor.getValue().getRemarkContent());
     }
 
     private void assertLastUpdatedOrderHasTimestamp() {

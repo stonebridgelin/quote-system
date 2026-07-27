@@ -282,19 +282,6 @@ CREATE TABLE `t_sys_config` (
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='系统配置表';
 
 
--- quote.t_user 定义
-
-CREATE TABLE `t_user` (
-                          `id` bigint NOT NULL AUTO_INCREMENT,
-                          `username` varchar(50) NOT NULL COMMENT '登录账号',
-                          `password` varchar(100) NOT NULL COMMENT 'BCrypt盐值加密密码',
-                          `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
-                          `name` varchar(50) DEFAULT NULL COMMENT '真实姓名',
-                          `role` varchar(20) DEFAULT 'USER' COMMENT '角色标识(如: ADMIN, USER)',
-                          PRIMARY KEY (`id`),
-                          UNIQUE KEY `username` (`username`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 
 
 CREATE TABLE `t_quote_set_item` (

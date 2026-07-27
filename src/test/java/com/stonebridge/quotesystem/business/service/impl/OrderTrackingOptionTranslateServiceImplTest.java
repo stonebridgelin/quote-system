@@ -30,22 +30,21 @@ class OrderTrackingOptionTranslateServiceImplTest {
     private OrderTrackingOptionMapper optionMapper;
 
     @Test
-    void shouldTranslateDisabledHistoricalStatusButRejectItForNewFlow() {
+    void shouldOnlyUseEnabledDatabaseOptions() {
         when(optionMapper.selectList(any(QueryWrapper.class))).thenReturn(new ArrayList<>(List.of(
                 statusOption("CARTON", null, 1100, "客户尚未提供唛头/设计资料", 10, 1),
-                statusOption("CARTON", null, 1250, "设计初步完成，已发客户待确认", 30, 1),
-                statusOption("CARTON", null, 1500, "检查无误", 60, 0)
+                statusOption("CARTON", null, 1250, "设计初步完成，已发客户待确认", 30, 1)
         )));
 
         OrderTrackingOptionTranslateServiceImpl service =
                 new OrderTrackingOptionTranslateServiceImpl(optionMapper);
 
-        OrderTrackingOptionTranslateVO historical =
+        OrderTrackingOptionTranslateVO removedStatus =
                 service.translate("CARTON", "STATUS", null, 1500);
 
-        assertEquals("检查无误", historical.getLabel());
-        assertTrue(historical.getMatched());
-        assertFalse(historical.getValidForParent());
+        assertEquals("未知状态(1500)", removedStatus.getLabel());
+        assertFalse(removedStatus.getMatched());
+        assertFalse(removedStatus.getValidForParent());
         assertFalse(service.isValidStatusForParent("CARTON", null, 1500));
         assertTrue(service.isValidStatusForParent("CARTON", null, 1250));
         assertEquals(1100, service.getFirstStatusValue("CARTON", null));
@@ -56,7 +55,7 @@ class OrderTrackingOptionTranslateServiceImplTest {
         verify(optionMapper).selectList(wrapperCaptor.capture());
         String sqlSegment = wrapperCaptor.getValue().getSqlSegment();
         assertTrue(sqlSegment.contains("is_deleted"));
-        assertFalse(sqlSegment.contains("is_enabled"));
+        assertTrue(sqlSegment.contains("is_enabled"));
     }
 
     @Test

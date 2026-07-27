@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * 设计目的：
  * 1. 列表页不再直接展示 t_order_tracking 里的状态码；
  * 2. 后端在返回列表数据时，统一完成类型/状态翻译；
- * 3. 前端只展示 displayText/tagType，避免出现 2300、3300 这类裸状态码。
+ * 3. 前端只展示 displayText/tagType，避免直接出现裸状态码。
  */
 @Data
 public class OrderTrackingListVO {

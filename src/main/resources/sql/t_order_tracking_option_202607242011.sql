@@ -25,7 +25,6 @@ INSERT INTO quote.t_order_tracking_option (id,module_type,option_type,parent_val
 	 ('375480b967e54dc28bed429e3636e692','STICKER','STATUS',30,3250,'设计初步完成，已发客户待确认',30,'warning','不干胶设计初稿已发送客户，等待确认',1,0,'2026-07-24 20:30:00','system',NULL,NULL),
 	 ('d149ee89792c11f1905f005056c00001','STICKER','STATUS',30,3300,'用户已确认',40,'warning',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
 	 ('d149ef18792c11f1905f005056c00001','STICKER','STATUS',30,3400,'业务员已签字确认',50,'success',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
-	 ('d149ef9b792c11f1905f005056c00001','STICKER','STATUS',30,3500,'检查无误',60,'info','历史状态，已停用，不再出现在新流程中',0,0,NULL,NULL,'2026-07-24 20:30:00','system'),
 	 ('da5cf72a792c11f1905f005056c00001','PRINTING','TYPE',NULL,10,'无花纸',10,'info',NULL,1,0,NULL,NULL,NULL,NULL),
 	 ('da5cfeae792c11f1905f005056c00001','PRINTING','TYPE',NULL,20,'客户客供',20,'warning',NULL,1,0,NULL,NULL,NULL,NULL),
 	 ('da5cffa0792c11f1905f005056c00001','PRINTING','TYPE',NULL,30,'工厂提供',30,'warning',NULL,1,0,NULL,NULL,NULL,NULL),
@@ -46,7 +45,6 @@ INSERT INTO quote.t_order_tracking_option (id,module_type,option_type,parent_val
 	 ('e14a3c58792c11f1905f005056c00001','INNER_BOX','STATUS',20,5300,'用户已确认',40,'warning',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
 	 ('e14a3d06792c11f1905f005056c00001','INNER_BOX','STATUS',20,5400,'业务员已签字确认',50,'success',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system');
 INSERT INTO quote.t_order_tracking_option (id,module_type,option_type,parent_value,option_value,option_label,sort_no,tag_type,remark,is_enabled,is_deleted,create_time,create_by,update_time,update_by) VALUES
-	 ('e14a3da3792c11f1905f005056c00001','INNER_BOX','STATUS',20,5500,'检查无误',60,'info','历史状态，已停用，不再出现在新流程中',0,0,NULL,NULL,'2026-07-24 20:30:00','system'),
 	 ('e8a35b6d792c11f1905f005056c00001','COLOR_BOX','TYPE',NULL,10,'无彩盒',10,'info',NULL,1,0,NULL,NULL,NULL,NULL),
 	 ('e8a36165792c11f1905f005056c00001','COLOR_BOX','TYPE',NULL,20,'客户提供',20,'warning',NULL,1,0,NULL,NULL,NULL,NULL),
 	 ('e8a36270792c11f1905f005056c00001','COLOR_BOX','TYPE',NULL,30,'工厂生产',30,'warning',NULL,1,0,NULL,NULL,NULL,NULL),
@@ -60,10 +58,8 @@ INSERT INTO quote.t_order_tracking_option (id,module_type,option_type,parent_val
 	 ('d7dd014d356d478e9683c6b1bac09351','COLOR_BOX','STATUS',30,7250,'设计初步完成，已发客户待确认',30,'warning','彩盒设计初稿已发送客户，等待确认',1,0,'2026-07-24 20:30:00','system',NULL,NULL),
 	 ('e8a3678d792c11f1905f005056c00001','COLOR_BOX','STATUS',30,7300,'用户已确认',40,'warning',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
 	 ('e8a36829792c11f1905f005056c00001','COLOR_BOX','STATUS',30,7400,'业务员已签字确认',50,'success',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
-	 ('e8a369ac792c11f1905f005056c00001','COLOR_BOX','STATUS',30,7500,'检查无误',60,'info','历史状态，已停用，不再出现在新流程中',0,0,NULL,NULL,'2026-07-24 20:30:00','system'),
 	 ('efcdbb0e792c11f1905f005056c00001','CARTON','STATUS',NULL,1100,'客户尚未提供唛头/设计资料',10,'warning',NULL,1,0,NULL,NULL,NULL,NULL),
 	 ('efcdccbf792c11f1905f005056c00001','CARTON','STATUS',NULL,1200,'客户已提供设计资料',20,'warning',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
 	 ('0ca78cf0f4434c0593db0a97a16065dc','CARTON','STATUS',NULL,1250,'设计初步完成，已发客户待确认',30,'warning','外箱设计初稿已发送客户，等待确认',1,0,'2026-07-24 20:30:00','system',NULL,NULL),
 	 ('efcdcda2792c11f1905f005056c00001','CARTON','STATUS',NULL,1300,'用户已确认',40,'warning',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
-	 ('efcdce44792c11f1905f005056c00001','CARTON','STATUS',NULL,1400,'业务员已签字确认',50,'success',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system'),
-	 ('efcdcedc792c11f1905f005056c00001','CARTON','STATUS',NULL,1500,'检查无误',60,'info','历史状态，已停用，不再出现在新流程中',0,0,NULL,NULL,'2026-07-24 20:30:00','system');
+	 ('efcdce44792c11f1905f005056c00001','CARTON','STATUS',NULL,1400,'业务员已签字确认',50,'success',NULL,1,0,NULL,NULL,'2026-07-24 20:30:00','system');

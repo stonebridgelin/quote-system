@@ -366,7 +366,7 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateModuleWaiting(OrderTrackingWaitingDTO dto) {
-        if (!hasText(dto.getOrderId())) {
+        if (dto == null || !hasText(dto.getOrderId())) {
             throw new BusinessException(400, "订单ID不能为空");
         }
 
@@ -394,65 +394,36 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
         OrderTracking newOrder = new OrderTracking();
         BeanUtils.copyProperties(oldOrder, newOrder);
 
-        Integer beforeWaiting;
-        Integer afterWaiting = dto.getWaiting();
+        WaitingModuleChange change = applyWaitingModuleUpdate(
+                oldOrder, newOrder, moduleEnum, dto);
 
-        Integer currentType = null;
-        Integer currentStatus = null;
-        String currentText = null;
-
-        switch (moduleEnum) {
-            case BOTTOM_LABEL:
-                beforeWaiting = defaultInt(oldOrder.getIsBottomLabelWaiting(), 0);
-                newOrder.setIsBottomLabelWaiting(afterWaiting);
-                currentType = oldOrder.getBottomLabel();
-                currentStatus = oldOrder.getBottomLabelStatus();
-                break;
-            case STICKER:
-                beforeWaiting = defaultInt(oldOrder.getIsStickerWaiting(), 0);
-                newOrder.setIsStickerWaiting(afterWaiting);
-                currentType = oldOrder.getSticker();
-                currentStatus = oldOrder.getStickerStatus();
-                break;
-            case PRINTING:
-                beforeWaiting = defaultInt(oldOrder.getIsPrintingWaiting(), 0);
-                newOrder.setIsPrintingWaiting(afterWaiting);
-                currentType = oldOrder.getPrinting();
-                currentStatus = oldOrder.getPrintingStatus();
-                currentText = oldOrder.getPrintingPatternCode();
-                break;
-            case INNER_BOX:
-                beforeWaiting = defaultInt(oldOrder.getIsInnerBoxWaiting(), 0);
-                newOrder.setIsInnerBoxWaiting(afterWaiting);
-                currentType = oldOrder.getInnerBox();
-                currentStatus = oldOrder.getInnerBoxStatus();
-                break;
-            case COLOR_BOX:
-                beforeWaiting = defaultInt(oldOrder.getIsColorBoxWaiting(), 0);
-                newOrder.setIsColorBoxWaiting(afterWaiting);
-                currentType = oldOrder.getColorBox();
-                currentStatus = oldOrder.getColorBoxStatus();
-                break;
-            case CARTON:
-                beforeWaiting = defaultInt(oldOrder.getIsCartonWaiting(), 0);
-                newOrder.setIsCartonWaiting(afterWaiting);
-                currentType = null;
-                currentStatus = oldOrder.getCartonStatus();
-                break;
-            default:
-                throw new BusinessException(400, "不支持的追踪模块类型");
-        }
-
-        if (Objects.equals(beforeWaiting, afterWaiting) && !hasText(dto.getRemarkContent())) {
+        boolean hasImages = dto.getImages() != null && !dto.getImages().isEmpty();
+        if (!hasWaitingModuleChange(change)
+                && !hasText(dto.getRemarkContent())
+                && !hasImages) {
             return;
         }
 
-        newOrder.setUpdateTime(LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        newOrder.setUpdateTime(now);
         newOrder.setUpdateBy(currentUser);
 
+        // 等待状态、模块数据和主表更新时间只执行一次更新。
         orderTrackingMapper.updateById(newOrder);
 
-        saveWaitingChangeLogIfNeeded(oldOrder.getId(), moduleEnum.getCode(), beforeWaiting, afterWaiting, currentType, currentStatus, currentText, dto.getRemarkContent(), currentUser);
+        // 一次等待操作只生成一条日志，图片全部关联到这条日志。
+        saveLog(
+                oldOrder.getId(),
+                moduleEnum.getCode(),
+                change.beforeType(),
+                change.afterType(),
+                change.beforeStatus(),
+                change.afterStatus(),
+                change.beforeText(),
+                change.afterText(),
+                buildWaitingActionRemark(change.afterWaiting(), dto.getRemarkContent()),
+                dto.getImages(),
+                currentUser);
     }
 
     @Override
@@ -583,16 +554,22 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
      * 1. 不再把状态码写死在前端；
      * 2. 状态是否合法由 t_order_tracking_option 决定；
      * 3. 类型变化后，如果旧状态不属于新类型，自动置为新类型的第一个状态；
-     * 4. 类型没有状态流程时，状态自动置空，避免列表页出现 2300、3300 这类脏数据。
+     * 4. 类型没有状态流程时，状态自动置空，避免列表页出现裸状态码。
      */
     private void fillDefaultStatus(OrderTracking order) {
-        order.setBottomLabel(defaultInt(order.getBottomLabel(), 0));
+        order.setBottomLabel(resolveType(
+                TrackModuleEnum.BOTTOM_LABEL.getCode(),
+                order.getBottomLabel()));
         order.setBottomLabelStatus(resolveStatus(TrackModuleEnum.BOTTOM_LABEL.getCode(), order.getBottomLabel(), order.getBottomLabelStatus()));
 
-        order.setSticker(defaultInt(order.getSticker(), 0));
+        order.setSticker(resolveType(
+                TrackModuleEnum.STICKER.getCode(),
+                order.getSticker()));
         order.setStickerStatus(resolveStatus(TrackModuleEnum.STICKER.getCode(), order.getSticker(), order.getStickerStatus()));
 
-        order.setPrinting(defaultInt(order.getPrinting(), 0));
+        order.setPrinting(resolveType(
+                TrackModuleEnum.PRINTING.getCode(),
+                order.getPrinting()));
         order.setPrintingStatus(resolveStatus(TrackModuleEnum.PRINTING.getCode(), order.getPrinting(), order.getPrintingStatus()));
         if (order.getPrintingStatus() != null) {
             order.setPrintingPatternCode(null);
@@ -601,21 +578,42 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
             order.setPrintingPatternCode(null);
         }
 
-        order.setInnerBox(defaultInt(order.getInnerBox(), 0));
+        order.setInnerBox(resolveType(
+                TrackModuleEnum.INNER_BOX.getCode(),
+                order.getInnerBox()));
         order.setInnerBoxStatus(resolveStatus(TrackModuleEnum.INNER_BOX.getCode(), order.getInnerBox(), order.getInnerBoxStatus()));
 
-        order.setColorBox(defaultInt(order.getColorBox(), 0));
+        order.setColorBox(resolveType(
+                TrackModuleEnum.COLOR_BOX.getCode(),
+                order.getColorBox()));
         order.setColorBoxStatus(resolveStatus(TrackModuleEnum.COLOR_BOX.getCode(), order.getColorBox(), order.getColorBoxStatus()));
 
-        order.setAntiCutBoard(defaultInt(order.getAntiCutBoard(), 0));
+        order.setAntiCutBoard(resolveType(
+                "ANTI_CUT_BOARD",
+                order.getAntiCutBoard()));
 
-        Integer cartonDefault = optionTranslateService.getFirstStatusValue(TrackModuleEnum.CARTON.getCode(), null);
-        if (cartonDefault == null) {
-            cartonDefault = 1100;
-        }
+        Integer cartonDefault = requiredFirstStatus(
+                TrackModuleEnum.CARTON.getCode(), null);
         if (order.getCartonStatus() == null || !optionTranslateService.isValidStatusForParent(TrackModuleEnum.CARTON.getCode(), null, order.getCartonStatus())) {
             order.setCartonStatus(cartonDefault);
         }
+    }
+
+    private Integer resolveType(String moduleType, Integer currentType) {
+        if (currentType != null
+                && optionTranslateService.isValidType(
+                        moduleType, currentType)) {
+            return currentType;
+        }
+
+        Integer firstType =
+                optionTranslateService.getFirstTypeValue(moduleType);
+        if (firstType == null) {
+            throw new BusinessException(
+                    500,
+                    "订单追踪类型基础配置缺失：" + moduleType);
+        }
+        return firstType;
     }
 
     private Integer resolveStatus(String moduleType, Integer parentValue, Integer currentStatus) {
@@ -637,6 +635,223 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
         }
 
         return firstStatus;
+    }
+
+    private Integer requiredFirstStatus(
+            String moduleType,
+            Integer parentValue) {
+        Integer firstStatus =
+                optionTranslateService.getFirstStatusValue(
+                        moduleType, parentValue);
+        if (firstStatus == null) {
+            throw new BusinessException(
+                    500,
+                    "订单追踪状态基础配置缺失：" + moduleType);
+        }
+        return firstStatus;
+    }
+
+    /**
+     * 将模块字段和等待状态合并到同一份主表数据中。
+     * 旧客户端未传模块字段时保留原值；新客户端传入字段时按配置表校验状态。
+     */
+    private WaitingModuleChange applyWaitingModuleUpdate(
+            OrderTracking oldOrder,
+            OrderTracking newOrder,
+            TrackModuleEnum moduleEnum,
+            OrderTrackingWaitingDTO dto) {
+        Integer afterWaiting = dto.getWaiting();
+
+        switch (moduleEnum) {
+            case BOTTOM_LABEL: {
+                Integer beforeType = oldOrder.getBottomLabel();
+                Integer beforeStatus = oldOrder.getBottomLabelStatus();
+                Integer afterType = submittedType(dto, beforeType);
+                Integer afterStatus = submittedStatus(
+                        dto, moduleEnum.getCode(), afterType, beforeStatus);
+                Integer beforeWaiting = defaultInt(
+                        oldOrder.getIsBottomLabelWaiting(), 0);
+
+                newOrder.setBottomLabel(afterType);
+                newOrder.setBottomLabelStatus(afterStatus);
+                newOrder.setIsBottomLabelWaiting(afterWaiting);
+
+                return new WaitingModuleChange(
+                        beforeWaiting, afterWaiting,
+                        beforeType, afterType,
+                        beforeStatus, afterStatus,
+                        null, null);
+            }
+            case STICKER: {
+                Integer beforeType = oldOrder.getSticker();
+                Integer beforeStatus = oldOrder.getStickerStatus();
+                Integer afterType = submittedType(dto, beforeType);
+                Integer afterStatus = submittedStatus(
+                        dto, moduleEnum.getCode(), afterType, beforeStatus);
+                Integer beforeWaiting = defaultInt(
+                        oldOrder.getIsStickerWaiting(), 0);
+
+                newOrder.setSticker(afterType);
+                newOrder.setStickerStatus(afterStatus);
+                newOrder.setIsStickerWaiting(afterWaiting);
+
+                return new WaitingModuleChange(
+                        beforeWaiting, afterWaiting,
+                        beforeType, afterType,
+                        beforeStatus, afterStatus,
+                        null, null);
+            }
+            case PRINTING: {
+                Integer beforeType = oldOrder.getPrinting();
+                Integer beforeStatus = oldOrder.getPrintingStatus();
+                String beforeText = oldOrder.getPrintingPatternCode();
+                Integer afterType = submittedType(dto, beforeType);
+                Integer afterStatus = submittedStatus(
+                        dto, moduleEnum.getCode(), afterType, beforeStatus);
+                String afterText = dto.getTextValue() == null
+                        ? beforeText : dto.getTextValue();
+                Integer beforeWaiting = defaultInt(
+                        oldOrder.getIsPrintingWaiting(), 0);
+
+                // 花纸进入状态流程后不再保留“工厂花型代码”文本。
+                if (afterStatus != null
+                        || afterType == null
+                        || Objects.equals(afterType, 0)
+                        || Objects.equals(afterType, 10)) {
+                    afterText = null;
+                }
+
+                newOrder.setPrinting(afterType);
+                newOrder.setPrintingStatus(afterStatus);
+                newOrder.setPrintingPatternCode(afterText);
+                newOrder.setIsPrintingWaiting(afterWaiting);
+
+                return new WaitingModuleChange(
+                        beforeWaiting, afterWaiting,
+                        beforeType, afterType,
+                        beforeStatus, afterStatus,
+                        beforeText, afterText);
+            }
+            case INNER_BOX: {
+                Integer beforeType = oldOrder.getInnerBox();
+                Integer beforeStatus = oldOrder.getInnerBoxStatus();
+                Integer afterType = submittedType(dto, beforeType);
+                Integer afterStatus = submittedStatus(
+                        dto, moduleEnum.getCode(), afterType, beforeStatus);
+                Integer beforeWaiting = defaultInt(
+                        oldOrder.getIsInnerBoxWaiting(), 0);
+
+                newOrder.setInnerBox(afterType);
+                newOrder.setInnerBoxStatus(afterStatus);
+                newOrder.setIsInnerBoxWaiting(afterWaiting);
+
+                return new WaitingModuleChange(
+                        beforeWaiting, afterWaiting,
+                        beforeType, afterType,
+                        beforeStatus, afterStatus,
+                        null, null);
+            }
+            case COLOR_BOX: {
+                Integer beforeType = oldOrder.getColorBox();
+                Integer beforeStatus = oldOrder.getColorBoxStatus();
+                Integer afterType = submittedType(dto, beforeType);
+                Integer afterStatus = submittedStatus(
+                        dto, moduleEnum.getCode(), afterType, beforeStatus);
+                Integer beforeWaiting = defaultInt(
+                        oldOrder.getIsColorBoxWaiting(), 0);
+
+                newOrder.setColorBox(afterType);
+                newOrder.setColorBoxStatus(afterStatus);
+                newOrder.setIsColorBoxWaiting(afterWaiting);
+
+                return new WaitingModuleChange(
+                        beforeWaiting, afterWaiting,
+                        beforeType, afterType,
+                        beforeStatus, afterStatus,
+                        null, null);
+            }
+            case CARTON: {
+                Integer beforeStatus = oldOrder.getCartonStatus();
+                Integer afterStatus = submittedCartonStatus(
+                        dto.getStatusValue(), beforeStatus);
+                Integer beforeWaiting = defaultInt(
+                        oldOrder.getIsCartonWaiting(), 0);
+
+                newOrder.setCartonStatus(afterStatus);
+                newOrder.setIsCartonWaiting(afterWaiting);
+
+                return new WaitingModuleChange(
+                        beforeWaiting, afterWaiting,
+                        null, null,
+                        beforeStatus, afterStatus,
+                        null, null);
+            }
+            default:
+                throw new BusinessException(400, "不支持的追踪模块类型");
+        }
+    }
+
+    private Integer submittedType(
+            OrderTrackingWaitingDTO dto,
+            Integer beforeType) {
+        if (dto.getTypeValue() == null) {
+            return beforeType;
+        }
+        return resolveType(dto.getModuleType(), dto.getTypeValue());
+    }
+
+    private Integer submittedStatus(
+            OrderTrackingWaitingDTO dto,
+            String moduleType,
+            Integer afterType,
+            Integer beforeStatus) {
+        if (dto.getTypeValue() == null && dto.getStatusValue() == null) {
+            return beforeStatus;
+        }
+        return resolveStatus(moduleType, afterType, dto.getStatusValue());
+    }
+
+    private Integer submittedCartonStatus(
+            Integer submittedStatus,
+            Integer beforeStatus) {
+        if (submittedStatus == null) {
+            return beforeStatus;
+        }
+
+        String moduleType = TrackModuleEnum.CARTON.getCode();
+        if (optionTranslateService.isValidStatusForParent(
+                moduleType, null, submittedStatus)) {
+            return submittedStatus;
+        }
+
+        Integer firstStatus =
+                optionTranslateService.getFirstStatusValue(moduleType, null);
+        if (firstStatus == null) {
+            throw new BusinessException(
+                    500,
+                    "订单追踪状态基础配置缺失：" + moduleType);
+        }
+        return firstStatus;
+    }
+
+    private boolean hasWaitingModuleChange(WaitingModuleChange change) {
+        return !Objects.equals(change.beforeWaiting(), change.afterWaiting())
+                || !Objects.equals(change.beforeType(), change.afterType())
+                || !Objects.equals(change.beforeStatus(), change.afterStatus())
+                || !Objects.equals(
+                        cleanText(change.beforeText()),
+                        cleanText(change.afterText()));
+    }
+
+    private String buildWaitingActionRemark(
+            Integer afterWaiting,
+            String remark) {
+        String actionText = Objects.equals(afterWaiting, 1)
+                ? "开启等待回复提醒"
+                : "解除等待回复提醒";
+        return hasText(remark)
+                ? actionText + "：" + remark.trim()
+                : actionText;
     }
 
     /**
@@ -964,5 +1179,16 @@ public class OrderTrackingServiceImpl implements IOrderTrackingService {
 
     private Integer defaultInt(Integer value, Integer defaultValue) {
         return value == null ? defaultValue : value;
+    }
+
+    private record WaitingModuleChange(
+            Integer beforeWaiting,
+            Integer afterWaiting,
+            Integer beforeType,
+            Integer afterType,
+            Integer beforeStatus,
+            Integer afterStatus,
+            String beforeText,
+            String afterText) {
     }
 }
